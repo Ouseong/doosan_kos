@@ -1,0 +1,12 @@
+# Docker 캐시
+docker/cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ROS2 빌드
+build/
+install/
+log/
