@@ -1,120 +1,230 @@
 # doosan_kos
 
-두산 협동로봇 M1013 + Isaac Sim 5.1.0 + ROS2 Humble Docker 환경
-✅ x86_64 (서버컴) + aarch64 (DGX Spark) 모두 지원
+Doosan M1013 협동로봇 + Isaac Sim 5.1.0 + ROS2 Jazzy 통합 환경.
+**NVIDIA DGX Spark (aarch64) 및 x86_64 Ubuntu 24.04 모두 지원.**
+
+DRCF 에뮬레이터 ↔ ROS2 driver ↔ Isaac Sim 을 실시간으로 연결해서 가상 로봇의 관절을 3D 로 시각화합니다.
+
+![Pipeline](https://img.shields.io/badge/Isaac_Sim-5.1.0-green) ![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue) ![Platform](https://img.shields.io/badge/platform-x86__64%20%7C%20aarch64-orange)
+
+---
 
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────┐
-│              Host (서버컴 or Spark)           │
-│                                             │
-│  ┌──────────────────┐  ┌─────────────────┐ │
-│  │  DRCF 에뮬레이터  │  │   doosan_kos    │ │
-│  │  (두산 공식)      │  │   컨테이너      │ │
-│  │                  │  │                 │ │
-│  │  가짜 로봇       │◄─►│  Isaac Sim 5.1  │ │
-│  │  컨트롤러        │  │  ROS2 Humble    │ │
-│  │  :12345          │  │  doosan-robot2  │ │
-│  └──────────────────┘  └─────────────────┘ │
-└─────────────────────────────────────────────┘
+┌──────────────────────────── Host ────────────────────────────┐
+│                                                               │
+│   DRCF emulator (host, QEMU)              doosan_kos 컨테이너 │
+│   ┌────────────────────┐                  ┌────────────────┐ │
+│   │ doosanrobot/       │                  │ Isaac Sim 5.1  │ │
+│   │ dsr_emulator:3.0.1 │◄────TCP :12345──►│ (base.kit)     │ │
+│   │ (x86_64 binary)    │                  │                │ │
+│   │                    │                  │ + ROS2 Jazzy   │ │
+│   │ aarch64 에서는      │                  │ + doosan-robot2│ │
+│   │ qemu-user-static   │                  │                │ │
+│   │ 로 실행됨           │                  │ + bundled      │ │
+│   └────────────────────┘                  │   rclpy (py3.11)│ │
+│            ▲                              └────────────────┘ │
+│            │                                      │           │
+│            │                                      │           │
+│         ROS2 driver (container)                   ▼           │
+│         ros2_control_node → /dsr01/joint_states              │
+│                                      │                        │
+│                                      └──► Isaac Sim 구독      │
+│                                            SingleArticulation│
+│                                            → 3D 로봇 동기화   │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-## 폴더 구조
+---
+
+## 디렉토리 구조
 
 ```
 doosan_kos/
 ├── docker/
-│   ├── Dockerfile              ← Isaac Sim 5.1.0 + ROS2 + doosan 이미지
-│   ├── bootstrap_ws.sh         ← doosan-robot2 자동 빌드
-│   ├── entrypoint.sh           ← 컨테이너 시작 시 자동 실행
-│   ├── container.sh            ← start/enter/stop/clean 관리
-│   └── run_emulator.sh         ← DRCF 에뮬레이터 실행
+│   ├── Dockerfile              Isaac Sim 5.1.0 + ROS2 Jazzy + Doosan deps
+│   ├── bootstrap_ws.sh         doosan-robot2 clone + colcon build 자동화
+│   ├── entrypoint.sh           컨테이너 시작 시 ROS2 env 세팅
+│   ├── container.sh            start/enter/stop/clean 관리 스크립트
+│   ├── run_emulator.sh         DRCF 에뮬레이터 실행
+│   └── register_qemu.sh        aarch64 에서 x86_64 DRCF 돌리기 위한 binfmt 등록
+│
 ├── isaac/
-│   └── m1013_ros2_bridge.py    ← Isaac Sim 5.1.0 ROS2 브리지
+│   ├── m1013_ros2_bridge.py    ★ 메인 브리지 (ROS2 joint_states → Isaac Sim 관절)
+│   │
+│   ├── urdf_to_usd.py          URDF → USD 변환 (v1, 기본 옵션)
+│   ├── urdf_to_usd_v2.py       URDF → USD 변환 (v2, merge_fixed_joints=True)
+│   ├── assemble_m1013.py       ★ M1013 USD 수동 조립 (base + physics sublayer)
+│   │
+│   ├── flatten_usd.py          USD 평탄화 (디버깅)
+│   ├── flatten_deep.py         Dependencies 분석 + 평탄화 (디버깅)
+│   └── inspect_usd.py          USD prim 구조 출력 (디버깅)
+│
 ├── scripts/
-│   ├── m1013_sim_bringup.launch.py  ← 가상 모드 (에뮬레이터)
-│   └── real_bringup.launch.py       ← 실제 로봇 모드
+│   ├── m1013_sim_bringup.launch.py   DRCF 에뮬레이터 모드
+│   └── real_bringup.launch.py        실제 로봇 모드
+│
 ├── .gitignore
 └── README.md
 ```
 
+★ 핵심 파일.
+
+---
+
 ## 사전 요구사항
 
+| 항목 | 요구 |
+|------|------|
+| OS | Ubuntu 24.04 (Noble) |
+| GPU | NVIDIA (RTX Ampere 이상 또는 GB10) |
+| Docker | nvidia-container-runtime 설치 |
+| 디스크 | 30GB+ 여유공간 |
+| RAM | 32GB+ 권장 |
+| Python | 시스템은 3.12 (Jazzy), Isaac Sim 번들은 3.11 |
+
+**확인**:
 ```bash
-lsb_release -a                  # Ubuntu 22.04 확인
-nvidia-smi                      # GPU 드라이버 확인
-docker info | grep -i runtime   # nvidia 가 보여야 함
-df -h ~                         # 여유 공간 30GB 이상
+lsb_release -a                  # Ubuntu 24.04
+nvidia-smi                      # 드라이버 580+ 권장
+docker info | grep -i runtime   # nvidia runtime 존재
+df -h ~                         # 30GB+
 ```
 
-## 설치 및 실행
+**aarch64 (DGX Spark) 추가**:
+```bash
+# DRCF (x86_64) 를 ARM 에서 돌리기 위한 QEMU
+sudo apt install -y qemu-user-static binfmt-support
+sudo bash docker/register_qemu.sh
+```
 
-### 1. 레포 클론
+---
+
+## 설치
+
+### 1. 클론
 ```bash
 git clone https://github.com/Ouseong/doosan_kos.git ~/doosan_kos
 cd ~/doosan_kos
 chmod +x docker/*.sh
 ```
 
-### 2. 컨테이너 시작 (처음 한 번만 30~45분 소요)
+### 2. 컨테이너 빌드 + 시작 (첫 빌드 30~45분)
 ```bash
 bash docker/container.sh start
 ```
 
-### 3. 실행 순서 (터미널 5개)
+- Isaac Sim 5.1.0 이미지 pull + ROS2 Jazzy 설치 + Doosan 워크스페이스 빌드 일괄 실행
+- 이후 `container.sh start` 는 기존 컨테이너 재시작
 
-**터미널 1 (호스트)** - DRCF 에뮬레이터
+### 3. DRCF 에뮬레이터 실행 (호스트, 별도 터미널)
 ```bash
-bash docker/run_emulator.sh
+# x86_64 호스트
+docker run -d --rm --name emulator --network host \
+  doosanrobot/dsr_emulator:3.0.1
+
+# aarch64 (DGX Spark) — QEMU binfmt 등록 필요
+docker run -d --rm --name emulator --network host \
+  --entrypoint /bin/bash \
+  -e ROBOT_MODEL=M1013 \
+  doosanrobot/dsr_emulator:3.0.1 \
+  -c "cd /home/dra/Application/Simulator && ./DRCF M1013"
+
+# 확인: port 12345 LISTEN 인지
+ss -tlnp | grep 12345
 ```
 
-**터미널 2 (컨테이너)** - Isaac Sim
-```bash
-# GUI 모드 (모니터 연결 시)
-/isaac-sim/python.sh /kos_workspace/isaac/m1013_ros2_bridge.py --topic dsr01/joint_states
+### 4. M1013 USD 조립 (최초 1회)
 
-# 헤드리스 모드 (원격 접속 시)
-/isaac-sim/python.sh /kos_workspace/isaac/m1013_ros2_bridge.py --topic dsr01/joint_states --headless
+Isaac Sim 의 URDF 임포터가 M1013 URDF 를 변환할 때 sublayer USD 들의 참조 체인이 깨집니다. 직접 조립해서 self-contained USD 를 만듭니다.
+
+```bash
+# 컨테이너 안에서 실행
+docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/urdf_to_usd_v2.py"
+docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/assemble_m1013.py"
+
+# 결과: /tmp/m1013_v2/m1013_full.usda (mesh 40개 + joint 6개 포함)
 ```
 
-**터미널 3 (컨테이너)** - ROS2 드라이버
+### 5. Doosan ROS2 driver 실행 (컨테이너)
 ```bash
-ros2 launch /kos_workspace/scripts/m1013_sim_bringup.launch.py \
-    mode:=virtual host:=127.0.0.1 port:=12345 model:=m1013
+docker exec -d doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+source /ros2_ws/install/setup.bash
+ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
+  model:=m1013 mode:=virtual host:=127.0.0.1 port:=12345 use_rviz:=false
+"
 ```
 
-**터미널 4 (컨테이너)** - 관절 상태 모니터링
+### 6. Isaac Sim 브리지 실행
 ```bash
-ros2 topic echo /isaac_joint_states
+docker exec doosan_kos bash -c "
+export PYTHONUNBUFFERED=1
+export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRARY_PATH
+/isaac-sim/python.sh /kos_workspace/isaac/m1013_ros2_bridge.py
+"
 ```
 
-**터미널 5 (컨테이너)** - 로봇 동작 명령
+Isaac Sim 창이 뜨고 M1013 로봇이 viewport 에 보입니다.
+
+### 7. 동작 테스트
 ```bash
-ros2 service call /dsr01/motion/move_home dsr_msgs2/srv/MoveHome "{target: 0}"
+docker exec doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+source /ros2_ws/install/setup.bash
+ros2 service call /dsr01/motion/move_joint dsr_msgs2/srv/MoveJoint \
+  '{pos: [45.0, 0, 0, 0, 0, 0], vel: 30, acc: 30}'
+"
 ```
 
-## 실제 로봇으로 전환
+Isaac Sim viewport 에서 joint_1 이 45도 회전하는 걸 확인할 수 있습니다.
 
-터미널 1 에뮬레이터 없이, 터미널 3만 변경:
-```bash
-ros2 launch /kos_workspace/scripts/real_bringup.launch.py \
-    host:=<ROBOT_IP> model:=m1013
-```
+---
 
 ## 컨테이너 관리
 
 ```bash
-bash docker/container.sh start     # 시작
-bash docker/container.sh enter     # 접속 (추가 터미널)
+bash docker/container.sh start     # 시작 / 재시작 (이미지 없으면 빌드)
+bash docker/container.sh enter     # bash 접속
 bash docker/container.sh stop      # 중지
-bash docker/container.sh clean     # 삭제 (이미지 유지)
-bash docker/container.sh clean-all # 전부 삭제
+bash docker/container.sh clean     # 컨테이너 삭제 (이미지 유지)
+bash docker/container.sh clean-all # 컨테이너 + 이미지 전부 삭제
 bash docker/container.sh status    # 상태 확인
 ```
 
-## DGX Spark 주의사항
+---
 
-- Isaac Sim 5.1.0 컨테이너는 aarch64 (ARM) 지원 ✅
-- Livestreaming은 Spark에서 미지원 → `--headless` 옵션 사용
-- GUI는 Spark 모니터에 직접 연결하거나 X11 포워딩으로 사용
+## 주요 해결 사항
+
+이 환경 구축에서 돌파한 주요 기술 이슈들:
+
+| 이슈 | 원인 | 해결 |
+|------|------|------|
+| ROS2 Humble 설치 실패 | Isaac Sim 5.1 = Ubuntu 24.04, Humble 은 22.04 전용 | **ROS2 Jazzy 로 전환** |
+| OmniGraph 세그폴트 (aarch64) | `libomni.graph.image.core` aarch64 빌드 버그 | `isaacsim.exp.base.kit` 사용 + Python API 직접 호출 |
+| `rclpy` import 실패 | Isaac Sim Py 3.11 ↔ ROS2 Jazzy Py 3.12 충돌 | Isaac Sim 번들 rclpy 경로 `sys.path` 주입 |
+| `libament_index_cpp.so` 못 찾음 | Isaac Sim 번들 ROS2 라이브러리 경로 누락 | `LD_LIBRARY_PATH` 보강 |
+| Isaac Sim 창 안 뜸 | 컨테이너 DISPLAY/Xauthority 미설정 | 컨테이너 재생성 + 올바른 Xauth 바인드 |
+| Viewport 까만 화면 | base.kit 이 카메라/조명 자동 생성 안 함 | 스크립트에서 LookAt 카메라 + DistantLight + Dome + GroundPlane 명시 생성 |
+| 로봇이 누워있음 | URDF zero-pose 가 캘리브레이션 자세 | `HOME_POSE = [0, -π/2, π/2, 0, π/2, 0]` 초기화 + DRCF 전체-0 덮어쓰기 필터 |
+| M1013 메시 미렌더 | URDF 임포터가 sublayer 깨진 USD 생성 | `m1013_base.usd` + `m1013_physics.usd` 를 sublayer 로 수동 조립 |
+| DRCF x86_64 on aarch64 | DRCF 바이너리가 x86_64 전용 | `qemu-user-static` + binfmt 등록 |
+
+---
+
+## 실제 로봇 연결
+
+DRCF 에뮬레이터 대신 실제 M1013 로봇 IP 로:
+```bash
+ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
+  model:=m1013 mode:=real host:=<ROBOT_IP> port:=12345 use_rviz:=false
+```
+
+---
+
+## 라이선스 / 기여
+
+- Doosan 저장소: [doosan-robotics/doosan-robot2](https://github.com/doosan-robotics/doosan-robot2)
+- Isaac Sim: NVIDIA Omniverse
+- 본 레포: MIT

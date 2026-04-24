@@ -55,8 +55,10 @@ case "$1" in
         # 캐시 폴더 준비
         setup_cache
 
-        # X11 설정 (GUI 모드일 때)
-        xhost +local: 2>/dev/null || true
+        # X11 설정 (DISPLAY 가 설정된 경우에만)
+        if [ -n "$DISPLAY" ]; then
+            xhost +local: 2>/dev/null || true
+        fi
 
         # 새 컨테이너 생성
         echo "[KOS] 새 컨테이너 시작..."
@@ -68,8 +70,9 @@ case "$1" in
             --privileged \
             -e ACCEPT_EULA=Y \
             -e PRIVACY_CONSENT=Y \
-            -e DISPLAY=$DISPLAY \
-            -v "$HOME/.Xauthority:/isaac-sim/.Xauthority" \
+            -e DISPLAY="${DISPLAY:-:0}" \
+            -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
+            -v "$HOME/.Xauthority:/isaac-sim/.Xauthority:ro" \
             -v /tmp/.X11-unix:/tmp/.X11-unix \
             -v "$ROOT_DIR":/kos_workspace \
             -v "$CACHE_DIR/cache/main":/isaac-sim/.cache:rw \

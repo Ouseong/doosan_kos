@@ -1,3 +1,6 @@
+# Claude Code
+.claude/
+
 # Docker 캐시
 docker/cache/
 
@@ -10,3 +13,22 @@ __pycache__/
 build/
 install/
 log/
+
+# Isaac Sim 생성물 (로컬에서 re-build)
+*.usd
+*.usda
+*.usdc
+*.usdz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 로그
+*.log
