@@ -19,6 +19,7 @@ Run inside container:
 
 import math
 import threading
+import time
 import tkinter as tk
 
 import rclpy
@@ -52,13 +53,23 @@ class JogNode(Node):
         if len(msg.position) >= 6:
             self.current_pos_deg = [math.degrees(p) for p in msg.position[:6]]
 
+    def _wait_future(self, future, timeout):
+        # 백그라운드 executor 가 future 를 채우길 기다림
+        # (직접 spin 하면 다른 스레드와 충돌하므로 폴링)
+        deadline = time.time() + timeout
+        while not future.done() and time.time() < deadline:
+            time.sleep(0.05)
+        return future.done()
+
     def ensure_autonomous(self) -> bool:
         if not self.mode_cli.wait_for_service(timeout_sec=2.0):
             return False
         req = SetRobotMode.Request()
         req.robot_mode = 1  # AUTONOMOUS
         future = self.mode_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=3.0)
+        if not self._wait_future(future, 3.0):
+            future.cancel()
+            return False
         r = future.result()
         return bool(r and r.success)
 
@@ -75,7 +86,9 @@ class JogNode(Node):
         req.blend_type = 0
         req.sync_type = int(sync)
         future = self.move_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=120.0)
+        if not self._wait_future(future, 120.0):
+            future.cancel()
+            return False
         r = future.result()
         return bool(r and r.success)
 
@@ -164,11 +177,13 @@ class JogGUI:
 def main():
     rclpy.init()
     node = JogNode()
-    if not node.ensure_autonomous():
-        node.get_logger().warn("set_robot_mode AUTONOMOUS failed (driver not up?)")
 
+    # spin 을 먼저 띄워야 service call 의 future 가 완료될 수 있음
     spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spin_thread.start()
+
+    if not node.ensure_autonomous():
+        node.get_logger().warn("set_robot_mode AUTONOMOUS failed (driver not up?)")
 
     gui = JogGUI(node)
     try:

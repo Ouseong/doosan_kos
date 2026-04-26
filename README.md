@@ -149,7 +149,7 @@ docker exec -d doosan_kos bash -c "
 source /opt/ros/jazzy/setup.bash
 source /ros2_ws/install/setup.bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
-  model:=m1013 mode:=virtual host:=127.0.0.1 port:=12345 use_rviz:=false
+  model:=m1013 mode:=virtual host:=127.0.0.1 port:=12345 gui:=false
 "
 ```
 
@@ -164,15 +164,27 @@ export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRA
 
 Isaac Sim 창이 뜨고 M1013 로봇이 viewport 에 보입니다.
 
-### 7. ★ 한 줄 짜리 실행 — Jog GUI
+### 7. ★ 한 줄 짜리 실행 — GUI 도구
 
 처음 셋업이 끝났다면 이후엔 그냥:
+
 ```bash
-bash scripts/run_jog.sh             # 전부 켜고 GUI 실행 (Isaac Sim 포함)
-bash scripts/run_jog.sh --no-isaac  # Isaac Sim 빼고 가볍게
+bash scripts/run_jog.sh             # Joint Jog GUI (관절 슬라이더 컨트롤)
+bash scripts/run_telemetry.sh       # Telemetry 창 (실시간 위치/속도/토크/힘)
 ```
-이미 떠있는 컴포넌트는 건너뛰고, 안 떠있는 것만 시작합니다(idempotent).
-GUI 창에서 슬라이더로 6 관절 목표 각도 지정 → `Send (blocking)` 클릭하면 movej 실행.
+
+각 스크립트는 idempotent — 컨테이너/에뮬레이터/driver/Isaac Sim 중 안 떠있는 것만 자동으로 띄우고, 다 떠있으면 GUI 만 띄움. 두 스크립트 동시 실행 가능 (스택 공유).
+
+가볍게 쓰고 싶으면 `--no-isaac` 플래그로 Isaac Sim 단계 생략:
+
+```bash
+bash scripts/run_jog.sh --no-isaac
+```
+
+| 도구 | 무엇을 함 |
+|------|--------|
+| `joint_jog.py` | 6관절 슬라이더 GUI. 목표 각도 지정 → Send (blocking/async) → movej 실행. Home 버튼으로 0° 복귀. |
+| `telemetry.py` | 3섹션 라이브 뷰: ① 직접 측정 (관절 위치, 토크) ② DRCF 계산값 (관절 속도, 외부 토크, TCP 위치/속도/힘) ③ ROS 측 계산값 (관절·TCP 가속도, EMA 평활) |
 
 ### 8. 수동 동작 테스트
 ```bash
@@ -219,6 +231,7 @@ bash docker/container.sh status    # 상태 확인
 | 에뮬레이터 모션 stall (aarch64) | `dsr_emulator:3.0.1` 의 모션 엔진이 qemu-user 환경에서 `MTNFCESTATE_HOLD_IDLE` 자가루프, 결국 `FaultOccured` | 더 새로운 `dsr_emulator:3.4.1` 사용 (실로봇은 native DRCF 라 무관) |
 | `NameError: SetSingularityHandlingForce` | 업스트림 `DSR_ROBOT2.py` 의 오타 (srv 이름은 `SetSingularHandlingForce`) | bootstrap 단계에서 sed 로 자동 패치 |
 | 예제가 `Set Robot Mode Service is not available` 무한 대기 | 업스트림 `_srv_name_prefix=''` ↔ `dsr_bringup2` 가 모든 서비스를 `dsr_controller2/` 하위에 등록 | bootstrap 단계에서 prefix 를 `dsr_controller2/` 로 자동 패치 |
+| `gui:=false` 인데 RViz 가 항상 켜짐 | `dsr_bringup2_rviz.launch.py` 의 `IfCondition(gui)` 와 변수 선언이 둘 다 주석 처리 | bootstrap 단계에서 두 줄의 주석 자동 제거 |
 
 ---
 
@@ -227,7 +240,7 @@ bash docker/container.sh status    # 상태 확인
 DRCF 에뮬레이터 대신 실제 M1013 로봇 IP 로:
 ```bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
-  model:=m1013 mode:=real host:=<ROBOT_IP> port:=12345 use_rviz:=false
+  model:=m1013 mode:=real host:=<ROBOT_IP> port:=12345 gui:=false
 ```
 
 ---

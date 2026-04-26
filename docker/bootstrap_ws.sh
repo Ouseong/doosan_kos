@@ -55,6 +55,15 @@ with open(p, 'w') as f: f.write(s)
 "
     fi
 fi
+
+# dsr_bringup2_rviz.launch.py: gui:=false 가 무시되는 버그
+# (gui 변수 선언과 IfCondition(gui) 둘 다 주석 처리돼있어 rviz 가 항상 켜짐)
+LAUNCH="$WS/src/doosan-robot2/dsr_bringup2/launch/dsr_bringup2_rviz.launch.py"
+if [ -f "$LAUNCH" ] && grep -qE '^\s*#\s*condition=IfCondition\(gui\),' "$LAUNCH"; then
+    echo "[bootstrap] dsr_bringup2_rviz.launch.py 패치: gui:=false 가 실제로 동작하도록"
+    sed -i -E 's|^(\s*)#\s*(gui = LaunchConfiguration\("gui"\))|\1\2|' "$LAUNCH"
+    sed -i -E 's|^(\s*)#\s*(condition=IfCondition\(gui\),)|\1\2|' "$LAUNCH"
+fi
 # ------------------------------
 
 echo "[bootstrap] 의존성 설치 중..."
