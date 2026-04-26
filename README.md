@@ -17,7 +17,7 @@ DRCF 에뮬레이터 ↔ ROS2 driver ↔ Isaac Sim 을 실시간으로 연결해
 │   DRCF emulator (host, QEMU)              doosan_kos 컨테이너 │
 │   ┌────────────────────┐                  ┌────────────────┐ │
 │   │ doosanrobot/       │                  │ Isaac Sim 5.1  │ │
-│   │ dsr_emulator:3.0.1 │◄────TCP :12345──►│ (base.kit)     │ │
+│   │ dsr_emulator:3.4.1 │◄────TCP :12345──►│ (base.kit)     │ │
 │   │ (x86_64 binary)    │                  │                │ │
 │   │                    │                  │ + ROS2 Jazzy   │ │
 │   │ aarch64 에서는      │                  │ + doosan-robot2│ │
@@ -120,15 +120,11 @@ bash docker/container.sh start
 
 ### 3. DRCF 에뮬레이터 실행 (호스트, 별도 터미널)
 ```bash
-# x86_64 호스트
-docker run -d --rm --name emulator --network host \
-  doosanrobot/dsr_emulator:3.0.1
-
-# aarch64 (DGX Spark) — QEMU binfmt 등록 필요
+# x86_64 / aarch64 공통 — 3.4.1 권장 (3.0.1 은 aarch64 에서 모션 엔진 stall)
 docker run -d --rm --name emulator --network host \
   --entrypoint /bin/bash \
   -e ROBOT_MODEL=M1013 \
-  doosanrobot/dsr_emulator:3.0.1 \
+  doosanrobot/dsr_emulator:3.4.1 \
   -c "cd /home/dra/Application/Simulator && ./DRCF M1013"
 
 # 확인: port 12345 LISTEN 인지
@@ -210,6 +206,9 @@ bash docker/container.sh status    # 상태 확인
 | 로봇이 누워있음 | URDF zero-pose 가 캘리브레이션 자세 | `HOME_POSE = [0, -π/2, π/2, 0, π/2, 0]` 초기화 + DRCF 전체-0 덮어쓰기 필터 |
 | M1013 메시 미렌더 | URDF 임포터가 sublayer 깨진 USD 생성 | `m1013_base.usd` + `m1013_physics.usd` 를 sublayer 로 수동 조립 |
 | DRCF x86_64 on aarch64 | DRCF 바이너리가 x86_64 전용 | `qemu-user-static` + binfmt 등록 |
+| 에뮬레이터 모션 stall (aarch64) | `dsr_emulator:3.0.1` 의 모션 엔진이 qemu-user 환경에서 `MTNFCESTATE_HOLD_IDLE` 자가루프, 결국 `FaultOccured` | 더 새로운 `dsr_emulator:3.4.1` 사용 (실로봇은 native DRCF 라 무관) |
+| `NameError: SetSingularityHandlingForce` | 업스트림 `DSR_ROBOT2.py` 의 오타 (srv 이름은 `SetSingularHandlingForce`) | bootstrap 단계에서 sed 로 자동 패치 |
+| 예제가 `Set Robot Mode Service is not available` 무한 대기 | 업스트림 `_srv_name_prefix=''` ↔ `dsr_bringup2` 가 모든 서비스를 `dsr_controller2/` 하위에 등록 | bootstrap 단계에서 prefix 를 `dsr_controller2/` 로 자동 패치 |
 
 ---
 
