@@ -1,11 +1,10 @@
-# doosan_kos
-
-Doosan M1013 협동로봇 + Isaac Sim 5.1.0 + ROS2 Jazzy 통합 환경.
-**NVIDIA DGX Spark (aarch64) 및 x86_64 Ubuntu 24.04 모두 지원.**
+# DGX Spark × Doosan M1013
+### Isaac Sim 5.1 · ROS2 Jazzy · DRCF 에뮬레이터 통합
 
 DRCF 에뮬레이터 ↔ ROS2 driver ↔ Isaac Sim 을 실시간으로 연결해서 가상 로봇의 관절을 3D 로 시각화합니다.
+NVIDIA DGX Spark (aarch64) 와 x86_64 Ubuntu 24.04 모두 지원.
 
-![Pipeline](https://img.shields.io/badge/Isaac_Sim-5.1.0-green) ![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue) ![Platform](https://img.shields.io/badge/platform-x86__64%20%7C%20aarch64-orange)
+![DGX Spark](https://img.shields.io/badge/DGX_Spark-aarch64-76B900) ![Isaac Sim](https://img.shields.io/badge/Isaac_Sim-5.1.0-green) ![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue)
 
 ---
 
