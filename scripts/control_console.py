@@ -66,13 +66,17 @@ class T:
     MOVEIT      = "#f38ba8"  # red
 
 
-# ──────── M1013 joint limits (deg) — conservative ──────────
+# ──────── M1013 joint limits (deg) — from URDF, controller-enforced ──────────
+# The actual M1013 mechanical datasheet is stricter (J2 ±95°, J5 ±135°),
+# but the URDF / DRCF emulator only enforces these wider URDF limits.
+# Soft limit on J3 is ±160° (slightly tighter than ±2*pi) — match exactly so
+# IK-generated joint solutions from MoveL/MoveJX don't overshoot at the boundary.
 JOINT_LIMITS = [
     (-360, 360),  # J1
-    (-95,   95),  # J2
-    (-135, 135),  # J3
+    (-360, 360),  # J2
+    (-160, 160),  # J3
     (-360, 360),  # J4
-    (-135, 135),  # J5
+    (-360, 360),  # J5
     (-360, 360),  # J6
 ]
 
@@ -130,12 +134,27 @@ class RobotInterface(Node):
         r = self._wait(self.cli_mode.call_async(req), 3.0)
         return bool(r and r.success)
 
+    @staticmethod
+    def _clamp_joint_targets(pos_deg):
+        """Clamp each joint to its URDF/controller limit."""
+        out = []
+        clamped = False
+        for p, (lo, hi) in zip(pos_deg, JOINT_LIMITS):
+            cp = max(lo, min(hi, p))
+            if cp != p:
+                clamped = True
+            out.append(cp)
+        return out, clamped
+
     # ── service-backed motion ──
     def movej(self, pos_deg, vel=30.0, acc=30.0, sync=0) -> bool:
         if not self.cli_movej.wait_for_service(timeout_sec=2.0):
             return False
+        clamped, was_clamped = self._clamp_joint_targets(pos_deg)
+        if was_clamped:
+            self.get_logger().warn(f"movej target clamped to limits: {pos_deg} → {clamped}")
         req = MoveJoint.Request()
-        req.pos = [float(p) for p in pos_deg]
+        req.pos = [float(p) for p in clamped]
         req.vel = float(vel); req.acc = float(acc)
         req.time = 0.0; req.radius = 0.0
         req.mode = 0; req.blend_type = 0; req.sync_type = int(sync)
@@ -198,11 +217,21 @@ class RobotInterface(Node):
         self._speedj_running = True
 
         def loop():
+            margin = 5.0  # stop this many degrees before limit
             while self._speedj_running:
+                # safety: clamp commanded velocity if approaching limit
+                safe = list(self._speedj_target)
+                for i, v in enumerate(safe):
+                    if abs(v) < 0.01:
+                        continue
+                    lo, hi = JOINT_LIMITS[i]
+                    cur = self.joint_pos_deg[i]
+                    if (v > 0 and cur >= hi - margin) or (v < 0 and cur <= lo + margin):
+                        safe[i] = 0.0
                 msg = SpeedjStream()
-                msg.vel = list(self._speedj_target)
+                msg.vel = safe
                 msg.acc = [self._speedj_acc] * 6
-                msg.time = 0.05  # 50ms blend
+                msg.time = 0.05
                 self.pub_speedj.publish(msg)
                 time.sleep(0.05)
 
@@ -278,16 +307,30 @@ class ModeScreen(tk.Frame):
         """Override to release resources when leaving."""
         pass
 
+    def add_intro(self, text):
+        """Pin a 'how it works' panel at the top of the body."""
+        intro = tk.Frame(self.body, bg=T.PANEL_HI)
+        intro.pack(fill="x", pady=(0, 10), before=None)
+        tk.Label(intro, text="ⓘ  HOW IT WORKS",
+                 bg=T.PANEL_HI, fg=self.accent, anchor="w",
+                 font=tkfont.Font(family="DejaVu Sans", size=9, weight="bold")
+                 ).pack(fill="x", padx=12, pady=(6, 2))
+        tk.Label(intro, text=text, bg=T.PANEL_HI, fg=T.LABEL,
+                 anchor="w", justify="left", wraplength=860,
+                 font=tkfont.Font(family="DejaVu Sans", size=9)
+                 ).pack(fill="x", padx=12, pady=(0, 8))
+
     # helper: run in worker thread, status updates marshalled to main
     def run_async(self, work_fn, on_done=None):
         def worker():
             try:
                 result = work_fn()
-            except Exception as e:
-                self.after(0, lambda: self.set_status(f"error: {e}", T.BAD))
+            except Exception as exc:
+                msg = f"error: {exc}"  # capture as plain string before lambda
+                self.after(0, lambda m=msg: self.set_status(m, T.BAD))
                 return
             if on_done:
-                self.after(0, lambda: on_done(result))
+                self.after(0, lambda r=result: on_done(r))
         threading.Thread(target=worker, daemon=True).start()
 
 
@@ -295,6 +338,12 @@ class ModeScreen(tk.Frame):
 class JointSliderScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "1. Joint Slider Jog", T.JOINT)
+
+        self.add_intro(
+            "Set absolute angles for each of the 6 joints, then click Send. "
+            "movej (joint-space move) interpolates all joints together; the "
+            "TCP follows a curved path. Slider ranges are pre-clamped to the "
+            "URDF/controller limits so out-of-range commands can't be sent.")
 
         top = tk.Frame(self.body, bg=T.BG)
         top.pack(fill="x", pady=(0, 8))
@@ -371,6 +420,15 @@ class JointSliderScreen(ModeScreen):
 class TaskSpaceScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "2. Task Space Move (TCP)", T.TASK)
+
+        self.add_intro(
+            "Specify the end-effector pose: position (X,Y,Z) in mm and "
+            "orientation (Rx,Ry,Rz) in degrees. The controller computes IK "
+            "internally. MoveL keeps the TCP on a straight line in the chosen "
+            "frame (BASE / TOOL / WORLD). MoveJX targets the same pose but "
+            "lets joints take the shortest path (faster, but the TCP path is "
+            "curved). If the target is unreachable or hits a joint limit, the "
+            "driver returns FAILED — pick a closer pose.")
 
         # speed
         top = tk.Frame(self.body, bg=T.BG)
@@ -486,6 +544,12 @@ class IncrementalJogScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "3. Incremental Jog (step)", T.INCR)
 
+        self.add_intro(
+            "Click +/- to nudge by exactly the selected step. Joint mode "
+            "moves one joint by N degrees (clamped to limits). Task mode "
+            "moves the TCP by N mm (X,Y,Z) or N degrees (Rx,Ry,Rz) in the "
+            "BASE frame. Best for fine alignment / teaching positions.")
+
         top = tk.Frame(self.body, bg=T.BG)
         top.pack(fill="x", pady=(0, 8))
 
@@ -598,6 +662,13 @@ class WaypointScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "4. Waypoint Recorder", T.WP)
         self.waypoints = []  # list of dicts {posj: [...], posx: [...]}
+
+        self.add_intro(
+            "Teach-and-playback. Drive the robot to a pose using any other "
+            "mode, then come here and click '+ Save Current' — the current "
+            "joint angles are recorded. Build a sequence, reorder with ↑↓, "
+            "then '▶ Play All' executes them in order via movej. Save the "
+            "list to a JSON file to reuse later.")
 
         top = tk.Frame(self.body, bg=T.BG)
         top.pack(fill="x", pady=(0, 8))
@@ -748,6 +819,13 @@ class SpeedControlScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "5. Speed Control (deadman)", T.SPEED)
 
+        self.add_intro(
+            "Continuous joint-space velocity, like a teach-pendant jog. While "
+            "you HOLD a +/- button, the joint spins at the selected magnitude "
+            "(°/s). Releasing the button — or moving the cursor off — sends "
+            "speedj 0 immediately. Closing this window also stops the stream. "
+            "Each joint is independent. Stops automatically when joint nears its limit.")
+
         warn = tk.Label(self.body,
                         text="⚠ HOLD a button to move at that velocity. Release = STOP.",
                         bg=T.BAD, fg=T.BG, anchor="w",
@@ -820,6 +898,14 @@ class SpeedControlScreen(ModeScreen):
 class MoveItScreen(ModeScreen):
     def __init__(self, parent, app):
         super().__init__(parent, app, "6. MoveIt2 Planning", T.MOVEIT)
+
+        self.add_intro(
+            "MoveIt2 is the ROS-standard motion-planning framework: drag an "
+            "interactive marker on the TCP in RViz, click 'Plan & Execute', "
+            "and MoveIt finds a collision-free joint trajectory automatically. "
+            "Strong for cluttered workspaces and goal-based programming. "
+            "Heavier than the other modes (separate window, takes time to "
+            "launch). The dsr_moveit2 package needs a one-time colcon build.")
 
         big = tk.Label(self.body,
                        text="MoveIt2: motion planning with collision avoidance.",
