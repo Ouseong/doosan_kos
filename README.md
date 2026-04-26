@@ -183,7 +183,7 @@ bash scripts/run_jog.sh --no-isaac
 
 | 도구 | 무엇을 함 |
 |------|--------|
-| `joint_jog.py` | 6관절 슬라이더 GUI. 목표 각도 지정 → Send (blocking/async) → movej 실행. Home 버튼으로 0° 복귀. |
+| `control_console.py` | **메인 GUI.** 6 모드 dashboard: ① Joint Slider ② Task Space (MoveL/MoveJX) ③ Incremental Jog ④ Waypoint Recorder ⑤ Speed Control (deadman) ⑥ MoveIt2 launcher |
 | `telemetry.py` | 3섹션 라이브 뷰: ① 직접 측정 (관절 위치, 토크) ② DRCF 계산값 (관절 속도, 외부 토크, TCP 위치/속도/힘) ③ ROS 측 계산값 (관절·TCP 가속도, EMA 평활) |
 
 ### 8. 수동 동작 테스트
