@@ -69,7 +69,7 @@ ensure_stack() {
     fi
 
     if [ "$with_isaac" = "1" ]; then
-        echo "[5/5] Isaac Sim bridge..."
+        echo "[5/6] Isaac Sim bridge..."
         if docker exec doosan_kos pgrep -f m1013_ros2_bridge.py > /dev/null 2>&1; then
             echo "  ✓ 이미 실행 중"
         else
@@ -96,6 +96,24 @@ ensure_stack() {
             if [ "$ready" = "0" ]; then
                 echo " ✗ 3분 안에 준비 안 됨. docker exec doosan_kos tail /tmp/bridge.log 확인"
                 return 1
+            fi
+        fi
+
+        # Isaac Sim 이 켜져있으면 telemetry 창도 같이 띄움
+        echo "[6/6] Telemetry window..."
+        if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
+            echo "  ✓ 이미 실행 중"
+        else
+            docker exec -d doosan_kos bash -lc "
+                source /opt/ros/jazzy/setup.bash &&
+                source /ros2_ws/install/setup.bash &&
+                python3 /kos_workspace/scripts/telemetry.py > /tmp/telem.log 2>&1
+            "
+            sleep 2
+            if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
+                echo "  ✓ 시작됨"
+            else
+                echo "  ⚠ 시작 실패. docker exec doosan_kos tail /tmp/telem.log 확인"
             fi
         fi
     fi
