@@ -97,11 +97,84 @@ robot = SingleArticulation(prim_path=articulation_root_path, name="robot")
 world.scene.add(robot)
 
 # ── 씬 보강: 지면 + 조명 + 카메라 ──
-from pxr import UsdGeom, UsdLux, Gf, Sdf
+from pxr import UsdGeom, UsdLux, UsdShade, Gf, Sdf
+import os
 
-# 지면 (ground plane)
-from isaacsim.core.api.objects.ground_plane import GroundPlane
-GroundPlane(prim_path="/World/GroundPlane", size=5.0)
+# ── 무한 체크 바닥 (시뮬레이터 표준 스타일) ──
+def _setup_checker_floor(stage,
+                         size_m=50.0, tile_m=0.5,
+                         color_a=(20, 25, 45),     # 검은 청색
+                         color_b=(70, 95, 175)):   # 미디엄 블루
+    """
+    무한해 보이는 체크 무늬 바닥. tile_m = 한 칸의 한 변 길이(m).
+    - 작은 PNG (한 칸짜리 2×2 체커) 를 만들고
+    - 큰 plane 에 UV 를 size_m/tile_m 만큼 repeat 시켜
+    - 무한 타일링처럼 보이게 함.
+    """
+    checker_png = "/tmp/m1013_checker_floor.png"
+    if not os.path.exists(checker_png):
+        from PIL import Image
+        img_size = 256
+        half = img_size // 2
+        img = Image.new("RGB", (img_size, img_size), color_a)
+        pix = img.load()
+        for y in range(img_size):
+            for x in range(img_size):
+                if ((x // half) + (y // half)) % 2 == 0:
+                    pix[x, y] = color_b
+        img.save(checker_png)
+        print(f"[bridge] 체크 바닥 텍스처 생성: {checker_png}")
+
+    floor = "/World/CheckerFloor"
+    half = size_m / 2.0
+    mesh = UsdGeom.Mesh.Define(stage, floor)
+    mesh.CreatePointsAttr([
+        Gf.Vec3f(-half, -half, 0), Gf.Vec3f(half, -half, 0),
+        Gf.Vec3f(half, half, 0),   Gf.Vec3f(-half, half, 0),
+    ])
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    mesh.CreateExtentAttr([(-half, -half, 0), (half, half, 0)])
+
+    # UV: each PNG period = 1 m of world (PNG has 2 tiles, so half period = tile_m)
+    # repeats = world size / (2 * tile_m) → covers size_m with tile_m squares
+    repeats = size_m / (2.0 * tile_m)
+    uv = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.varying)
+    uv.Set([Gf.Vec2f(0, 0), Gf.Vec2f(repeats, 0),
+            Gf.Vec2f(repeats, repeats), Gf.Vec2f(0, repeats)])
+
+    # Material
+    mat = UsdShade.Material.Define(stage, floor + "/Mat")
+    surf = UsdShade.Shader.Define(stage, floor + "/Mat/Surface")
+    surf.CreateIdAttr("UsdPreviewSurface")
+    surf.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.6)
+    surf.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+
+    reader = UsdShade.Shader.Define(stage, floor + "/Mat/UVReader")
+    reader.CreateIdAttr("UsdPrimvarReader_float2")
+    reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    reader_out = reader.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    tex = UsdShade.Shader.Define(stage, floor + "/Mat/Tex")
+    tex.CreateIdAttr("UsdUVTexture")
+    tex.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(checker_png)
+    tex.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("sRGB")
+    tex.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("repeat")
+    tex.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("repeat")
+    tex.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(reader_out)
+    tex_rgb = tex.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
+
+    surf.CreateInput("diffuseColor",
+                     Sdf.ValueTypeNames.Color3f).ConnectToSource(tex_rgb)
+    mat.CreateSurfaceOutput().ConnectToSource(
+        surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
+    UsdShade.MaterialBindingAPI(mesh).Bind(mat)
+    print(f"[bridge] 체크 바닥 mesh: {floor} ({size_m}m × {size_m}m, "
+          f"tile={tile_m*100:.0f}cm, {int(repeats*2)}×{int(repeats*2)} cells)")
+
+
+_setup_checker_floor(stage)
 
 # Distant light
 light_prim = UsdLux.DistantLight.Define(stage, Sdf.Path("/World/DistantLight"))

@@ -34,13 +34,27 @@ from dsr_msgs2.srv import (
     MoveJoint,
     MoveJointx,
     MoveLine,
+    MoveStop,
+    Fkin,
     GetCurrentPosj,
     GetCurrentPosx,
     SetRobotMode,
+    SetSafetyMode,
+    SetSingularityHandling,
+    ChangeCollisionSensitivity,
 )
+
+# ──────── Workspace safety limits ──────────────────────────
+TCP_Z_MIN_MM = 50.0          # don't let TCP go below this (floor + margin)
+COLLISION_SENSITIVITY = 50   # 0-100 ; controller-side reactive stop threshold
+SINGULARITY_MODE = 0         # 0=AVOID, 1=TASK_STOP, 2=VAR_VEL
 
 ROBOT_ID = "dsr01"
 SVC = f"/{ROBOT_ID}/dsr_controller2"
+
+# Real-robot deployment defaults
+REAL_ROBOT_ID = "dsr01_real"
+DEFAULT_REAL_IP = "192.168.137.50"
 WAYPOINTS_FILE = Path("/tmp/m1013_waypoints.json")
 
 
@@ -66,17 +80,19 @@ class T:
     MOVEIT      = "#f38ba8"  # red
 
 
-# ──────── M1013 joint limits (deg) — from URDF, controller-enforced ──────────
-# The actual M1013 mechanical datasheet is stricter (J2 ±95°, J5 ±135°),
-# but the URDF / DRCF emulator only enforces these wider URDF limits.
-# Soft limit on J3 is ±160° (slightly tighter than ±2*pi) — match exactly so
-# IK-generated joint solutions from MoveL/MoveJX don't overshoot at the boundary.
+# ──────── M1013 joint limits (deg) — datasheet-matched practical bounds ──────────
+# Empirically verified via fkin: with all other joints at 0, J2 outside ±90°
+# drives the TCP below the floor (e.g. J2=120° → TCP Z ≈ -500mm). Datasheet
+# says ±95°. Using ±95° as the slider/clamp limit. fkin TCP-Z check below
+# catches compound poses where the wrist would still dive below the floor.
+# (Elbow / upper-arm collision in some compound poses is not caught here —
+#  use MoveIt2 mode 6 for full geometric collision avoidance.)
 JOINT_LIMITS = [
-    (-360, 360),  # J1
-    (-360, 360),  # J2
-    (-160, 160),  # J3
-    (-360, 360),  # J4
-    (-360, 360),  # J5
+    (-360, 360),  # J1  — base rotation, no floor risk
+    (-95,   95),  # J2  — datasheet ±95° matches the empirical floor-safe range
+    (-160, 160),  # J3  — URDF/controller limit (datasheet is tighter at ±125°)
+    (-360, 360),  # J4  — wrist roll
+    (-135, 135),  # J5  — datasheet, prevents wrist over-rotation
     (-360, 360),  # J6
 ]
 
@@ -103,6 +119,23 @@ class RobotInterface(Node):
         self.cli_posj = self.create_client(GetCurrentPosj, f"{SVC}/aux_control/get_current_posj")
         self.cli_posx = self.create_client(GetCurrentPosx, f"{SVC}/aux_control/get_current_posx")
         self.cli_mode = self.create_client(SetRobotMode, f"{SVC}/system/set_robot_mode")
+        self.cli_stop = self.create_client(MoveStop, f"{SVC}/motion/move_stop")
+        self.cli_sing = self.create_client(SetSingularityHandling, f"{SVC}/motion/set_singularity_handling")
+        self.cli_coll = self.create_client(ChangeCollisionSensitivity, f"{SVC}/system/change_collision_sensitivity")
+        self.cli_fkin = self.create_client(Fkin, f"{SVC}/motion/fkin")
+        self.cli_safety = self.create_client(SetSafetyMode, f"{SVC}/system/set_safety_mode")
+
+        # safety state (for status display)
+        self.singularity_mode = None
+        self.collision_sensitivity = None
+
+        # target mode: "sim" | "real" | "preview"
+        # preview = run on sim first, ask user confirm, then run on real.
+        self.target_mode = "sim"
+        self.real_ip = DEFAULT_REAL_IP
+        self.real_driver_started = False
+        # real-robot service clients (lazily created when real driver is started)
+        self._real_clients = {}
 
         # speedj publisher
         self.pub_speedj = self.create_publisher(SpeedjStream, f"{SVC}/speedj_stream", 10)
@@ -134,6 +167,28 @@ class RobotInterface(Node):
         r = self._wait(self.cli_mode.call_async(req), 3.0)
         return bool(r and r.success)
 
+    def configure_safety(self, sing_mode=SINGULARITY_MODE,
+                         coll_sens=COLLISION_SENSITIVITY) -> bool:
+        """Enable singularity avoidance + reactive collision stop."""
+        ok = True
+        if self.cli_sing.wait_for_service(timeout_sec=2.0):
+            req = SetSingularityHandling.Request()
+            req.mode = int(sing_mode)
+            r = self._wait(self.cli_sing.call_async(req), 2.0)
+            if r and r.success:
+                self.singularity_mode = sing_mode
+            else:
+                ok = False
+        if self.cli_coll.wait_for_service(timeout_sec=2.0):
+            req = ChangeCollisionSensitivity.Request()
+            req.sensitivity = int(coll_sens)
+            r = self._wait(self.cli_coll.call_async(req), 2.0)
+            if r and r.success:
+                self.collision_sensitivity = coll_sens
+            else:
+                ok = False
+        return ok
+
     @staticmethod
     def _clamp_joint_targets(pos_deg):
         """Clamp each joint to its URDF/controller limit."""
@@ -146,22 +201,83 @@ class RobotInterface(Node):
             out.append(cp)
         return out, clamped
 
-    # ── service-backed motion ──
-    def movej(self, pos_deg, vel=30.0, acc=30.0, sync=0) -> bool:
-        if not self.cli_movej.wait_for_service(timeout_sec=2.0):
+    def _send_movej_one(self, pos_deg, vel, acc, sync, real):
+        cli = self._client_for("movej", real=real)
+        if not cli or not cli.wait_for_service(timeout_sec=2.0):
             return False
-        clamped, was_clamped = self._clamp_joint_targets(pos_deg)
-        if was_clamped:
-            self.get_logger().warn(f"movej target clamped to limits: {pos_deg} → {clamped}")
         req = MoveJoint.Request()
-        req.pos = [float(p) for p in clamped]
+        req.pos = [float(p) for p in pos_deg]
         req.vel = float(vel); req.acc = float(acc)
         req.time = 0.0; req.radius = 0.0
         req.mode = 0; req.blend_type = 0; req.sync_type = int(sync)
-        r = self._wait(self.cli_movej.call_async(req), 120.0)
+        r = self._wait(cli.call_async(req), 120.0)
         return bool(r and r.success)
 
+    # ── service-backed motion ──
+    def movej(self, pos_deg, vel=30.0, acc=30.0, sync=0,
+              confirm_real_callback=None) -> bool:
+        clamped, was_clamped = self._clamp_joint_targets(pos_deg)
+        if was_clamped:
+            self.get_logger().warn(f"movej target clamped to limits: {pos_deg} → {clamped}")
+        # workspace check via forward kinematics
+        ok, why = self._fkin_check(clamped, ref=0)
+        if not ok:
+            self.get_logger().warn(f"movej blocked: predicted {why}")
+            return False
+
+        mode = self.target_mode
+        if mode == "sim":
+            return self._send_movej_one(clamped, vel, acc, sync, real=False)
+        if mode == "real":
+            if not self.real_driver_started:
+                self.get_logger().warn("real mode requested but real driver not started")
+                return False
+            return self._send_movej_one(clamped, vel, acc, sync, real=True)
+        # preview: sim → confirm → real
+        ok_sim = self._send_movej_one(clamped, vel, acc, sync=0, real=False)
+        if not ok_sim:
+            return False
+        if not self.real_driver_started:
+            self.get_logger().warn("preview mode: sim done but real driver not started; skipping real")
+            return ok_sim
+        proceed = True
+        if confirm_real_callback:
+            proceed = bool(confirm_real_callback(clamped))
+        if not proceed:
+            return ok_sim
+        return self._send_movej_one(clamped, vel, acc, sync, real=True)
+
+    @staticmethod
+    def _check_workspace(posx, ref):
+        """Reject targets that go below the floor (BASE/WORLD only)."""
+        # ref: 0=BASE, 1=TOOL, 2=WORLD. Z guard makes sense only in BASE/WORLD.
+        if ref not in (0, 2):
+            return True, ""
+        z = posx[2]
+        if z < TCP_Z_MIN_MM:
+            return False, f"target Z={z:.1f}mm < floor margin {TCP_Z_MIN_MM:.0f}mm"
+        return True, ""
+
+    def _fkin_check(self, posj_deg, ref=0):
+        """Predict TCP via Doosan fkin service then run workspace check.
+        Catches the case where movej target joints would put the TCP /
+        wrist below the floor."""
+        if not self.cli_fkin.wait_for_service(timeout_sec=0.5):
+            return True, ""  # can't check, allow (don't block on missing service)
+        req = Fkin.Request()
+        req.pos = [float(p) for p in posj_deg]
+        req.ref = int(ref)
+        r = self._wait(self.cli_fkin.call_async(req), 1.5)
+        if r is None or not r.success:
+            return True, ""  # fkin failed, allow
+        posx = list(r.conv_posx)
+        return self._check_workspace(posx, ref)
+
     def movejx(self, posx, vel=30.0, acc=30.0, ref=0, sol=2, sync=0) -> bool:
+        ok, why = self._check_workspace(posx, ref)
+        if not ok:
+            self.get_logger().warn(f"movejx blocked: {why}")
+            return False
         if not self.cli_movejx.wait_for_service(timeout_sec=2.0):
             return False
         req = MoveJointx.Request()
@@ -175,6 +291,10 @@ class RobotInterface(Node):
 
     def movel(self, posx, vel_lin=100.0, vel_ang=30.0, acc_lin=200.0, acc_ang=60.0,
               ref=0, sync=0) -> bool:
+        ok, why = self._check_workspace(posx, ref)
+        if not ok:
+            self.get_logger().warn(f"movel blocked: {why}")
+            return False
         if not self.cli_movel.wait_for_service(timeout_sec=2.0):
             return False
         req = MoveLine.Request()
@@ -249,6 +369,98 @@ class RobotInterface(Node):
             self.pub_speedj.publish(msg)
             time.sleep(0.02)
 
+    # ── real-robot driver management ──
+    def start_real_driver(self, robot_ip: str) -> bool:
+        """Launch a second dsr_bringup2 driver pointing at the real robot,
+        in namespace /dsr01_real. Returns True if move_joint becomes available."""
+        self.real_ip = robot_ip
+        # docker exec -d to launch in container
+        cmd = (
+            "source /opt/ros/jazzy/setup.bash && "
+            "source /ros2_ws/install/setup.bash && "
+            f"ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py "
+            f"name:={REAL_ROBOT_ID} model:=m1013 mode:=real "
+            f"host:={robot_ip} port:=12345 gui:=false "
+            f"> /tmp/real_driver.log 2>&1"
+        )
+        try:
+            subprocess.Popen(["docker", "exec", "-d", "doosan_kos", "bash", "-lc", cmd])
+        except Exception as e:
+            self.get_logger().error(f"failed to launch real driver: {e}")
+            return False
+        # poll for service readiness up to 30s
+        for _ in range(30):
+            try:
+                r = subprocess.run(
+                    ["docker", "exec", "doosan_kos", "bash", "-c",
+                     "source /opt/ros/jazzy/setup.bash && "
+                     f"timeout 1 ros2 service list 2>/dev/null | "
+                     f"grep -c '/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint$'"],
+                    capture_output=True, text=True, timeout=3)
+                if int(r.stdout.strip() or "0") > 0:
+                    self.real_driver_started = True
+                    self._lazy_create_real_clients()
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
+    def _lazy_create_real_clients(self):
+        """Create service clients for the real-robot namespace."""
+        if self._real_clients:
+            return
+        real_svc = f"/{REAL_ROBOT_ID}/dsr_controller2"
+        self._real_clients = {
+            "movej": self.create_client(MoveJoint, f"{real_svc}/motion/move_joint"),
+            "movejx": self.create_client(MoveJointx, f"{real_svc}/motion/move_jointx"),
+            "movel": self.create_client(MoveLine, f"{real_svc}/motion/move_line"),
+            "stop": self.create_client(MoveStop, f"{real_svc}/motion/move_stop"),
+        }
+
+    def _client_for(self, kind: str, real: bool):
+        """Pick sim or real client for the given motion kind."""
+        if real and self.real_driver_started:
+            return self._real_clients.get(kind)
+        return {
+            "movej": self.cli_movej,
+            "movejx": self.cli_movejx,
+            "movel": self.cli_movel,
+            "stop": self.cli_stop,
+        }[kind]
+
+    def cancel_motion(self, stop_mode=3):
+        """Cancel any in-progress motion. stop_mode 3 = HOLD (graceful)."""
+        # 1. stop speedj stream if any
+        self.speedj_stop()
+        # 2. send move_stop service
+        if not self.cli_stop.wait_for_service(timeout_sec=0.5):
+            return False
+        req = MoveStop.Request()
+        req.stop_mode = int(stop_mode)
+        # fire-and-forget — we don't care about the response
+        self.cli_stop.call_async(req)
+        return True
+
+    def recover(self) -> bool:
+        """Try to bring the robot out of a faulted/stuck state.
+
+        Sequence:
+          1. cancel any in-flight motion (move_stop HOLD)
+          2. cycle safety mode RECOVERY → AUTONOMOUS+MOVE (clears soft faults)
+          3. ensure robot mode = AUTONOMOUS
+        """
+        self.cancel_motion(stop_mode=3)
+        time.sleep(0.3)
+        if self.cli_safety.wait_for_service(timeout_sec=1.0):
+            for safety_mode, safety_event in [(2, 1), (1, 1)]:
+                req = SetSafetyMode.Request()
+                req.safety_mode = int(safety_mode)
+                req.safety_event = int(safety_event)
+                self._wait(self.cli_safety.call_async(req), 2.0)
+                time.sleep(0.2)
+        return self.ensure_autonomous()
+
 
 # ──────── GUI helpers ──────────────────────────────────────
 def big_button(parent, text, command, bg, fg=T.BG, height=2, width=14, **kw):
@@ -293,19 +505,38 @@ class ModeScreen(tk.Frame):
                  ).pack(side="left")
 
         self.status_lbl = tk.Label(hdr, text="ready", bg=T.BG, fg=T.DIM,
-                                   font=tkfont.Font(family="DejaVu Sans", size=9))
+                                   font=tkfont.Font(family="DejaVu Sans", size=9),
+                                   cursor="hand2")
         self.status_lbl.pack(side="right")
+        self.status_lbl.bind("<Button-1>", lambda e: self._on_status_click())
 
     def set_status(self, msg, color=T.DIM):
         self.status_lbl.config(text=msg, fg=color)
+        # show "click to recover" hint when in failed state
+        if color == T.BAD:
+            self.status_lbl.config(text=f"⟳  {msg}  (click to recover)")
+
+    def _on_status_click(self):
+        """If the status is in a failed state, run recover()."""
+        cur_text = self.status_lbl.cget("text")
+        if "click to recover" not in cur_text:
+            return  # only react when failed
+        self.set_status("recovering...", T.WARN)
+        def work():
+            return self.robot.recover()
+        def done(ok):
+            self.set_status("recovered — try again" if ok else "recover FAILED",
+                            T.OK if ok else T.BAD)
+        self.run_async(work, on_done=done)
 
     def on_show(self):
         """Override to refresh state when screen activated."""
         pass
 
     def on_hide(self):
-        """Override to release resources when leaving."""
-        pass
+        """Cancel any in-flight motion when leaving the screen.
+        Subclasses can override but should call super().on_hide()."""
+        self.robot.cancel_motion(stop_mode=3)  # HOLD = graceful
 
     def add_intro(self, text):
         """Pin a 'how it works' panel at the top of the body."""
@@ -406,7 +637,8 @@ class JointSliderScreen(ModeScreen):
         self.set_status(f"movej → {[f'{x:.1f}' for x in target]}", T.LABEL)
         self.run_async(
             lambda: self.robot.movej(target, vel=self.vel_var.get(),
-                                     acc=self.acc_var.get(), sync=sync),
+                                     acc=self.acc_var.get(), sync=sync,
+                                     confirm_real_callback=self.app.confirm_real_modal),
             on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                T.OK if ok else T.BAD))
 
@@ -639,7 +871,8 @@ class IncrementalJogScreen(ModeScreen):
             target[idx] = max(lo, min(hi, target[idx]))
             self.set_status(f"J{idx+1} {step:+.1f}° → movej", T.LABEL)
             self.run_async(
-                lambda: self.robot.movej(target, vel=self.vel_var.get(), acc=60.0),
+                lambda: self.robot.movej(target, vel=self.vel_var.get(), acc=60.0,
+                                         confirm_real_callback=self.app.confirm_real_modal),
                 on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                    T.OK if ok else T.BAD))
         else:
@@ -775,7 +1008,8 @@ class WaypointScreen(ModeScreen):
         wp = self.waypoints[i]
         self.set_status(f"movej → WP{i+1}", T.LABEL)
         self.run_async(
-            lambda: self.robot.movej(wp["posj"], vel=30.0, acc=30.0),
+            lambda: self.robot.movej(wp["posj"], vel=30.0, acc=30.0,
+                                     confirm_real_callback=self.app.confirm_real_modal),
             on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                T.OK if ok else T.BAD))
 
@@ -788,7 +1022,8 @@ class WaypointScreen(ModeScreen):
             for idx, wp in enumerate(wps):
                 self.after(0, lambda i=idx: self.set_status(
                     f"playing WP{i+1}/{len(wps)}", T.LABEL))
-                ok = self.robot.movej(wp["posj"], vel=30.0, acc=30.0, sync=0)
+                ok = self.robot.movej(wp["posj"], vel=30.0, acc=30.0, sync=0,
+                                      confirm_real_callback=self.app.confirm_real_modal)
                 if not ok:
                     self.after(0, lambda: self.set_status("FAILED mid-sequence", T.BAD))
                     return
@@ -892,6 +1127,7 @@ class SpeedControlScreen(ModeScreen):
 
     def on_hide(self):
         self._release()
+        super().on_hide()
 
 
 # ──────── 6. MoveIt2 ───────────────────────────────────────
@@ -1043,9 +1279,18 @@ class HomeScreen(tk.Frame):
         tk.Label(title, text="M1013 Control Console", bg=T.BG, fg=T.TITLE,
                  font=tkfont.Font(family="DejaVu Sans", size=20, weight="bold")
                  ).pack(side="left")
+
+        # Mode button — top-right, opens connection settings dialog
+        self.mode_btn = tk.Button(title, text="🟢 SIM",
+                                  command=self._open_settings,
+                                  bg=T.OK, fg=T.BG, relief="flat", bd=0,
+                                  cursor="hand2", padx=14, pady=4,
+                                  font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold"))
+        self.mode_btn.pack(side="right", padx=(8, 0))
+
         self.live_lbl = tk.Label(title, text="● connecting", bg=T.BG, fg=T.DIM,
                                  font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold"))
-        self.live_lbl.pack(side="right")
+        self.live_lbl.pack(side="right", padx=(0, 8))
 
         sub = tk.Label(self, text="Pick a control mode below.", bg=T.BG, fg=T.LABEL,
                        font=tkfont.Font(family="DejaVu Sans", size=11))
@@ -1060,6 +1305,17 @@ class HomeScreen(tk.Frame):
         self.pose_lbl = tk.Label(strip, text="...", bg=T.PANEL, fg=T.VAL,
                                  font=tkfont.Font(family="DejaVu Sans Mono", size=10))
         self.pose_lbl.pack(side="left")
+
+        # safety strip
+        safe = tk.Frame(self, bg=T.PANEL_HI)
+        safe.pack(fill="x", padx=20, pady=(2, 4), ipady=6)
+        tk.Label(safe, text="🛡 Safety:", bg=T.PANEL_HI, fg=T.OK,
+                 font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold")
+                 ).pack(side="left", padx=(12, 4))
+        self.safety_lbl = tk.Label(safe, text="configuring ...", bg=T.PANEL_HI,
+                                   fg=T.LABEL,
+                                   font=tkfont.Font(family="DejaVu Sans", size=9))
+        self.safety_lbl.pack(side="left")
 
         # 2x3 grid
         grid = tk.Frame(self, bg=T.BG)
@@ -1130,7 +1386,103 @@ class HomeScreen(tk.Frame):
         card.bind("<Enter>", enter)
         card.bind("<Leave>", leave)
 
+    def _open_settings(self):
+        dlg = tk.Toplevel(self.app.root)
+        dlg.title("Connection Settings")
+        dlg.configure(bg=T.BG)
+        dlg.geometry("440x340")
+        dlg.transient(self.app.root)
+
+        tk.Label(dlg, text="Target Mode", bg=T.BG, fg=T.TITLE,
+                 font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold")
+                 ).pack(anchor="w", padx=16, pady=(14, 4))
+        mode_var = tk.StringVar(value=self.app.robot.target_mode)
+        modes = [
+            ("sim",     "🟢 SIM only       — commands go to the emulator (safe)"),
+            ("real",    "🔴 REAL only      — commands go straight to the real robot"),
+            ("preview", "🎯 PREVIEW→REAL — sim first, ask, then real (recommended for new programs)"),
+        ]
+        for val, lbl in modes:
+            tk.Radiobutton(dlg, text=lbl, variable=mode_var, value=val,
+                           bg=T.BG, fg=T.LABEL, selectcolor=T.PANEL_HI,
+                           activebackground=T.BG, anchor="w", justify="left",
+                           font=tkfont.Font(family="DejaVu Sans", size=10)
+                           ).pack(fill="x", padx=24, pady=2)
+
+        tk.Frame(dlg, height=1, bg=T.BORDER).pack(fill="x", padx=16, pady=10)
+
+        tk.Label(dlg, text="Real Robot Connection", bg=T.BG, fg=T.TITLE,
+                 font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold")
+                 ).pack(anchor="w", padx=16, pady=(0, 4))
+
+        ip_row = tk.Frame(dlg, bg=T.BG); ip_row.pack(fill="x", padx=24, pady=4)
+        tk.Label(ip_row, text="Robot IP:", bg=T.BG, fg=T.LABEL, width=10, anchor="w"
+                 ).pack(side="left")
+        ip_var = tk.StringVar(value=self.app.robot.real_ip)
+        tk.Entry(ip_row, textvariable=ip_var, width=18, bg=T.PANEL, fg=T.VAL,
+                 insertbackground=T.VAL, relief="flat",
+                 font=tkfont.Font(family="DejaVu Sans Mono", size=10)
+                 ).pack(side="left", padx=4)
+
+        status_color = T.OK if self.app.robot.real_driver_started else T.DIM
+        status_text = ("✓ connected" if self.app.robot.real_driver_started
+                       else "not started")
+        status_lbl = tk.Label(dlg, text=f"Real driver: {status_text}",
+                              bg=T.BG, fg=status_color,
+                              font=tkfont.Font(family="DejaVu Sans", size=9))
+        status_lbl.pack(anchor="w", padx=24, pady=(4, 8))
+
+        def start_real():
+            ip = ip_var.get().strip()
+            if not ip:
+                status_lbl.config(text="enter an IP first", fg=T.BAD)
+                return
+            status_lbl.config(text=f"Real driver: starting at {ip} ...", fg=T.WARN)
+
+            def worker():
+                ok = self.app.robot.start_real_driver(ip)
+                msg = (f"✓ connected to {ip}" if ok
+                       else f"✗ failed to reach {ip}")
+                color = T.OK if ok else T.BAD
+                self.app.root.after(0, lambda: status_lbl.config(
+                    text=f"Real driver: {msg}", fg=color))
+            threading.Thread(target=worker, daemon=True).start()
+
+        tk.Button(dlg, text="Start Real Driver", command=start_real,
+                  bg=T.BAD, fg=T.BG, relief="flat", bd=0,
+                  cursor="hand2", padx=14, pady=4,
+                  font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold")
+                  ).pack(anchor="w", padx=24)
+
+        tk.Frame(dlg, height=1, bg=T.BORDER).pack(fill="x", padx=16, pady=14)
+
+        def apply_and_close():
+            self.app.robot.target_mode = mode_var.get()
+            self.app.robot.real_ip = ip_var.get().strip()
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=T.BG); btns.pack(pady=4)
+        tk.Button(btns, text="Apply", command=apply_and_close,
+                  bg=T.JOINT, fg=T.BG, relief="flat", bd=0, cursor="hand2",
+                  padx=18, pady=4,
+                  font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold")
+                  ).pack(side="left", padx=4)
+        tk.Button(btns, text="Cancel", command=dlg.destroy,
+                  bg=T.PANEL_HI, fg=T.TITLE, relief="flat", bd=0, cursor="hand2",
+                  padx=18, pady=4,
+                  font=tkfont.Font(family="DejaVu Sans", size=10)
+                  ).pack(side="left", padx=4)
+
     def _refresh(self):
+        # mode button
+        mode = self.app.robot.target_mode
+        if mode == "sim":
+            self.mode_btn.config(text="🟢 SIM", bg=T.OK)
+        elif mode == "real":
+            self.mode_btn.config(text="🔴 REAL", bg=T.BAD)
+        else:
+            self.mode_btn.config(text="🎯 PREVIEW→REAL", bg=T.WARN)
+
         pos = self.app.robot.joint_pos_deg
         self.pose_lbl.config(text="  ".join(f"J{i+1}:{p:+7.1f}°" for i, p in enumerate(pos)))
         # service ready check
@@ -1139,6 +1491,15 @@ class HomeScreen(tk.Frame):
             self.live_lbl.config(text="● connected", fg=T.OK)
         else:
             self.live_lbl.config(text="● waiting for driver", fg=T.WARN)
+        # safety status
+        sm = self.app.robot.singularity_mode
+        cs = self.app.robot.collision_sensitivity
+        sing_txt = ["AVOID", "TASK_STOP", "VAR_VEL"][sm] if sm in (0, 1, 2) else "—"
+        self.safety_lbl.config(text=(
+            f"singularity={sing_txt}   "
+            f"collision_sensitivity={cs if cs is not None else '—'}   "
+            f"J2 ±95° (datasheet)   "
+            f"fkin TCP-Z ≥ {TCP_Z_MIN_MM:.0f}mm"))
         self.after(500, self._refresh)
 
 
@@ -1149,8 +1510,11 @@ class App:
         self.robot = RobotInterface()
         self.spin_thread = threading.Thread(target=rclpy.spin, args=(self.robot,), daemon=True)
         self.spin_thread.start()
-        # ensure autonomous (best-effort)
-        threading.Thread(target=self.robot.ensure_autonomous, daemon=True).start()
+        # ensure autonomous + enable safety features (best-effort)
+        def _setup():
+            self.robot.ensure_autonomous()
+            self.robot.configure_safety()
+        threading.Thread(target=_setup, daemon=True).start()
 
         self.root = tk.Tk()
         self.root.title("M1013 Control Console")
@@ -1194,12 +1558,33 @@ class App:
         self.current = s
 
     def _on_close(self):
-        # safety: stop any speedj stream
+        # safety: cancel any motion before closing
         try:
-            self.robot.speedj_stop()
+            self.robot.cancel_motion(stop_mode=3)
         except Exception:
             pass
         self.root.destroy()
+
+    def confirm_real_modal(self, target_pos):
+        """Called from a worker thread; pops a Tk modal asking the user
+        to confirm sending the same command to the real robot. Blocks
+        until the user answers (or 5 min timeout)."""
+        event = threading.Event()
+        answer = [False]
+
+        def show():
+            target_str = "  ".join(f"J{i+1}={v:+.1f}°" for i, v in enumerate(target_pos))
+            answer[0] = messagebox.askyesno(
+                "Apply to Real Robot?",
+                f"Sim execution finished.\n\n"
+                f"Target:\n  {target_str}\n\n"
+                f"Robot IP: {self.robot.real_ip}\n\n"
+                f"Send the same movej to the REAL robot now?")
+            event.set()
+
+        self.root.after(0, show)
+        event.wait(timeout=300)
+        return answer[0]
 
     def run(self):
         self.root.mainloop()

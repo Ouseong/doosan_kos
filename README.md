@@ -73,6 +73,69 @@ doosan_kos/
 
 ---
 
+## 빠른 시작 (복붙 한 번이면 끝)
+
+> 사전: NVIDIA GPU + Docker + nvidia-container-toolkit 가 깔린 Ubuntu 22.04/24.04. (자세한 요구사항은 아래 [사전 요구사항](#사전-요구사항) 참고.)
+
+### A. 처음 한 번만 — 설치
+머신에서 한 번만 실행하면 컨테이너 빌드까지 다 끝남. **첫 빌드 30-45분 소요**.
+
+```bash
+# 1) 클론 + 권한
+git clone https://github.com/Ouseong/doosan_kos.git ~/doosan_kos
+cd ~/doosan_kos
+chmod +x docker/*.sh scripts/*.sh
+
+# 2) aarch64 (DGX Spark / Jetson) 만 — x86_64 일반 PC/서버는 건너뛰기
+if [ "$(uname -m)" = "aarch64" ]; then
+    sudo apt install -y qemu-user-static binfmt-support
+    sudo bash docker/register_qemu.sh
+fi
+
+# 3) 컨테이너 빌드 + USD 조립 (한 번만)
+bash docker/container.sh start
+docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/urdf_to_usd_v2.py"
+docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/assemble_m1013.py"
+```
+
+### B. 매번 실행 — Isaac Sim + Console + Telemetry 한 번에
+설치 끝났으면 이후엔 그냥 한 줄:
+
+```bash
+cd ~/doosan_kos && bash scripts/run_jog.sh
+```
+
+자동으로 켜는 것:
+- ① doosan_kos 컨테이너 (안 떠있으면 시작)
+- ② DRCF 에뮬레이터 (port 12345)
+- ③ ROS2 driver (`dsr_bringup2`)
+- ④ Isaac Sim 3D viewer (체크 무늬 바닥)
+- ⑤ Telemetry 창 (실시간 위치/속도/토크)
+- ⑥ Control Console (6 모드 조작 GUI)
+
+이미 떠있는 컴포넌트는 건너뛰고 안 떠있는 것만 시작 (idempotent).
+
+가볍게 쓰고 싶으면:
+```bash
+bash scripts/run_jog.sh --no-isaac      # Isaac Sim + Telemetry 생략
+bash scripts/run_telemetry.sh           # Telemetry 만
+```
+
+### C. 끝낼 때
+```bash
+bash docker/container.sh stop           # 정지 (재시작 빠름)
+docker rm -f emulator                   # 에뮬레이터도 정리
+```
+
+## 공유 서버 사용 시 주의
+
+도커 컨테이너 이름이 고정 (`doosan_kos`, `emulator`) 이라 **한 머신에서 동시에 한 사용자만** 사용 가능. 여러 사람이 쓰는 서버라면:
+
+- 다 끝나면 반드시 `bash docker/container.sh stop` + `docker rm -f emulator` 로 정리
+- 다음 사람은 같은 컨테이너 재사용 (이미 빌드돼있어서 즉시 부팅)
+- 누군가 망가뜨려서 처음부터 빌드하려면 `bash docker/container.sh clean-all` 후 다시 빠른시작 A 부터
+- GPU/X11 디스플레이도 공유 자원이라 동시에 두 사람이 Isaac Sim 띄우면 충돌. 시간 나눠 쓰기 권장.
+
 ## 사전 요구사항
 
 | 항목 | 요구 |
