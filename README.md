@@ -164,7 +164,17 @@ export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRA
 
 Isaac Sim 창이 뜨고 M1013 로봇이 viewport 에 보입니다.
 
-### 7. 동작 테스트
+### 7. ★ 한 줄 짜리 실행 — Jog GUI
+
+처음 셋업이 끝났다면 이후엔 그냥:
+```bash
+bash scripts/run_jog.sh             # 전부 켜고 GUI 실행 (Isaac Sim 포함)
+bash scripts/run_jog.sh --no-isaac  # Isaac Sim 빼고 가볍게
+```
+이미 떠있는 컴포넌트는 건너뛰고, 안 떠있는 것만 시작합니다(idempotent).
+GUI 창에서 슬라이더로 6 관절 목표 각도 지정 → `Send (blocking)` 클릭하면 movej 실행.
+
+### 8. 수동 동작 테스트
 ```bash
 docker exec doosan_kos bash -c "
 source /opt/ros/jazzy/setup.bash
