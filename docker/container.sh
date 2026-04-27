@@ -2,13 +2,22 @@
 # ================================================
 # KOS 컨테이너 관리 스크립트
 # ✅ Isaac Sim 5.1.0 기준 (x86_64 + aarch64 Spark)
-# 사용법: bash container.sh [start|enter|stop|clean|clean-all|status]
+# 사용법: bash container.sh [start|enter|stop|clean|clean-all|status] [--gpu N]
 # ================================================
 
 CONTAINER_NAME="doosan_kos"
 IMAGE_NAME="doosan_kos:latest"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# ── GPU 선택 (기본값: all) ──
+GPU_ID="all"
+for arg in "$@"; do
+    if [[ "$prev" == "--gpu" ]]; then GPU_ID="$arg"; fi
+    prev="$arg"
+done
+GPU_OPTION="--gpus device=${GPU_ID}"
+[[ "$GPU_ID" == "all" ]] && GPU_OPTION="--gpus all"
 
 # ── 5.1.0 캐시 폴더 경로 ──
 CACHE_DIR="$HOME/docker/isaac-sim"
@@ -62,9 +71,10 @@ case "$1" in
 
         # 새 컨테이너 생성
         echo "[KOS] 새 컨테이너 시작..."
+        echo "[KOS] GPU: ${GPU_ID}"
         docker run -it \
             --name "$CONTAINER_NAME" \
-            --gpus all \
+            $GPU_OPTION \
             --network host \
             --ipc host \
             --privileged \
@@ -72,6 +82,7 @@ case "$1" in
             -e PRIVACY_CONSENT=Y \
             -e DISPLAY="${DISPLAY:-:0}" \
             -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
+            -e CUDA_VISIBLE_DEVICES="${GPU_ID}" \
             -v "$HOME/.Xauthority:/isaac-sim/.Xauthority:ro" \
             -v /tmp/.X11-unix:/tmp/.X11-unix \
             -v "$ROOT_DIR":/kos_workspace \
