@@ -20,6 +20,9 @@ log/
 *.usdc
 *.usdz
 
+# 그리퍼 물리 USD는 예외 (self-contained, 서버에서 재생성 불가)
+!usd/parts/gripper_assembly_physics.usd
+
 # OS
 .DS_Store
 Thumbs.db
