@@ -72,6 +72,7 @@ stage.SetMetadata('metersPerUnit', 1.0)
 world  = UsdGeom.Xform.Define(stage, '/World')
 gripper = UsdGeom.Xform.Define(stage, '/World/Gripper')
 UsdPhysics.ArticulationRootAPI.Apply(gripper.GetPrim())
+stage.SetDefaultPrim(gripper.GetPrim())
 
 # ── 메쉬 로드 ──────────────────────────────────────────────────────────────
 print('메쉬 로딩...')

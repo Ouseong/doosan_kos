@@ -61,7 +61,8 @@ if BUNDLED_RCLPY not in sys.path:
 world = World(stage_units_in_meters=1.0)
 stage = omni.usd.get_context().get_stage()
 
-add_reference_to_stage(usd_path=args.usd, prim_path="/World/Gripper")
+gripper_prim = stage.DefinePrim("/World/Gripper", "Xform")
+gripper_prim.GetReferences().AddReference(assetPath=args.usd, primPath="/World/Gripper")
 print(f"[gripper] USD 로드: {args.usd}")
 
 for _ in range(5):

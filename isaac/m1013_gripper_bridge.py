@@ -42,7 +42,7 @@ import omni
 from omni.isaac.core import World
 from omni.isaac.core.utils.extensions import enable_extension
 from omni.isaac.core.utils.stage import add_reference_to_stage
-from pxr import UsdPhysics, UsdGeom, UsdLux, Gf, Usd, Sdf
+from pxr import UsdPhysics, UsdGeom, UsdLux, UsdShade, Gf, Usd, Sdf
 import omni.isaac.core.utils.rotations as rot_utils
 
 enable_extension("isaacsim.ros2.bridge")
@@ -60,22 +60,136 @@ stage = omni.usd.get_context().get_stage()
 ROBOT_PRIM   = "/World/m1013"
 GRIPPER_PRIM = "/World/Gripper"
 
-add_reference_to_stage(usd_path=args.robot_usd,   prim_path=ROBOT_PRIM)
-add_reference_to_stage(usd_path=args.gripper_usd, prim_path=GRIPPER_PRIM)
+add_reference_to_stage(usd_path=args.robot_usd, prim_path=ROBOT_PRIM)
+gripper_prim = stage.DefinePrim(GRIPPER_PRIM, "Xform")
+gripper_prim.GetReferences().AddReference(assetPath=args.gripper_usd, primPath="/World/Gripper")
 print(f"[bridge] M1013 로드:  {args.robot_usd}")
 print(f"[bridge] 그리퍼 로드: {args.gripper_usd}")
 
+# 그리퍼 collision approximation 패치 (PhysX가 dynamic body의 triangle mesh를 못 다루므로
+# convexHull로 명시. 안 하면 첫 step에서 prim 삭제 → tensor view 무효화 → 시뮬 죽음)
+_coll_patched = 0
+for _p in stage.Traverse():
+    if _p.GetPath().pathString.startswith(GRIPPER_PRIM) \
+       and _p.HasAPI(UsdPhysics.CollisionAPI) and _p.IsA(UsdGeom.Mesh):
+        UsdPhysics.MeshCollisionAPI.Apply(_p).CreateApproximationAttr().Set("convexHull")
+        _coll_patched += 1
+print(f"[bridge] 그리퍼 collision 패치: {_coll_patched} prims → convexHull")
+
+# right_joint axis 반전 + limit 정상화
+# (소스 USD가 axis=X / upper=-0.0335 로 설정해서 PhysX가 무시했음)
+_rj = stage.GetPrimAtPath("/World/Gripper/right_joint")
+if _rj.IsValid():
+    _j = UsdPhysics.PrismaticJoint(_rj)
+    _j.GetLowerLimitAttr().Set(0.0)
+    _j.GetUpperLimitAttr().Set(0.0335)
+    _flip_y = Gf.Quatf(0, 0, 1, 0)   # Y축 180°
+    _j.GetLocalRot0Attr().Set(_flip_y)
+    _j.GetLocalRot1Attr().Set(_flip_y)
+    print(f"[bridge] right_joint axis 반전 + limit [0, 0.0335]")
+
+# 옵션 A 3차: articulation 유지 + body_world_joint 비활성 + 중력 OFF
+# 이유:
+#   - articulation 유지 → SingleArticulation API 그대로 사용 가능 (set_world_pose, set_joint_positions)
+#   - body_world_joint 비활성 → set_world_pose가 world fixed joint와 충돌 안 함
+#   - 중력 OFF → floating articulation이지만 떨어지지 않음 (떠다니지 않음)
+from pxr import PhysxSchema
+_fj_world = stage.GetPrimAtPath("/World/Gripper/body_world_joint")
+if _fj_world.IsValid():
+    _fj_world.SetActive(False)
+    print(f"[bridge] body_world_joint 비활성")
+
+for _bp in ["/World/Gripper/body", "/World/Gripper/left_plate", "/World/Gripper/right_plate"]:
+    _p = stage.GetPrimAtPath(_bp)
+    if _p.IsValid():
+        PhysxSchema.PhysxRigidBodyAPI.Apply(_p).CreateDisableGravityAttr().Set(True)
+print(f"[bridge] 그리퍼 rigid body 중력 비활성")
+
+# 옵션 A: 그리퍼 collision 비활성화 (kinematic follow 중에 외력으로 튕기는 거 방지)
+# 옵션 B (망치질) 단계에서 다시 켜야 함
+_coll_off = 0
+for _p in stage.Traverse():
+    _pp = _p.GetPath().pathString
+    if _pp.startswith(GRIPPER_PRIM) and _p.HasAPI(UsdPhysics.CollisionAPI):
+        UsdPhysics.CollisionAPI(_p).CreateCollisionEnabledAttr().Set(False)
+        _coll_off += 1
+print(f"[bridge] 그리퍼 collision 비활성: {_coll_off} prims (옵션 B 단계에서 재활성화 필요)")
+
 for _ in range(10):
     app.update()
+
+# ── 체크 무늬 바닥 ─────────────────────────────────────────────────────────
+def _setup_checker_floor(stage,
+                         size_m=50.0, tile_m=0.5,
+                         color_a=(20, 25, 45),
+                         color_b=(70, 95, 175)):
+    checker_png = "/tmp/m1013_checker_floor.png"
+    if not os.path.exists(checker_png):
+        from PIL import Image
+        img_size = 256
+        half = img_size // 2
+        img = Image.new("RGB", (img_size, img_size), color_a)
+        pix = img.load()
+        for y in range(img_size):
+            for x in range(img_size):
+                if ((x // half) + (y // half)) % 2 == 0:
+                    pix[x, y] = color_b
+        img.save(checker_png)
+        print(f"[bridge] 체크 바닥 텍스처 생성: {checker_png}")
+
+    floor = "/World/CheckerFloor"
+    half = size_m / 2.0
+    mesh = UsdGeom.Mesh.Define(stage, floor)
+    mesh.CreatePointsAttr([
+        Gf.Vec3f(-half, -half, 0), Gf.Vec3f(half, -half, 0),
+        Gf.Vec3f(half, half, 0),   Gf.Vec3f(-half, half, 0),
+    ])
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    mesh.CreateExtentAttr([(-half, -half, 0), (half, half, 0)])
+
+    repeats = size_m / (2.0 * tile_m)
+    uv = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.varying)
+    uv.Set([Gf.Vec2f(0, 0), Gf.Vec2f(repeats, 0),
+            Gf.Vec2f(repeats, repeats), Gf.Vec2f(0, repeats)])
+
+    mat = UsdShade.Material.Define(stage, floor + "/Mat")
+    surf = UsdShade.Shader.Define(stage, floor + "/Mat/Surface")
+    surf.CreateIdAttr("UsdPreviewSurface")
+    surf.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.6)
+    surf.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+
+    reader = UsdShade.Shader.Define(stage, floor + "/Mat/UVReader")
+    reader.CreateIdAttr("UsdPrimvarReader_float2")
+    reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    reader_out = reader.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    tex = UsdShade.Shader.Define(stage, floor + "/Mat/Tex")
+    tex.CreateIdAttr("UsdUVTexture")
+    tex.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(checker_png)
+    tex.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("sRGB")
+    tex.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("repeat")
+    tex.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("repeat")
+    tex.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(reader_out)
+    tex_rgb = tex.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
+
+    surf.CreateInput("diffuseColor",
+                     Sdf.ValueTypeNames.Color3f).ConnectToSource(tex_rgb)
+    mat.CreateSurfaceOutput().ConnectToSource(
+        surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
+    UsdShade.MaterialBindingAPI(mesh).Bind(mat)
+    print(f"[bridge] 체크 바닥: {size_m}m × {size_m}m, tile={tile_m*100:.0f}cm")
+
+_setup_checker_floor(stage)
 
 # ── 조명 ──────────────────────────────────────────────────────────────────
 UsdLux.DistantLight.Define(stage, "/World/DistantLight").CreateIntensityAttr(3000)
 UsdLux.DomeLight.Define(stage, "/World/DomeLight").CreateIntensityAttr(500)
 
-# ── M1013 ArticulationRoot 탐지 ────────────────────────────────────────────
+# ── ArticulationRoot 탐지 ─────────────────────────────────────────────────
 robot_art_path = None
 gripper_art_path = None
-
 for prim in stage.Traverse():
     if not prim.HasAPI(UsdPhysics.ArticulationRootAPI):
         continue
@@ -88,10 +202,23 @@ for prim in stage.Traverse():
 print(f"[bridge] M1013 ArticulationRoot:  {robot_art_path}")
 print(f"[bridge] 그리퍼 ArticulationRoot: {gripper_art_path}")
 
-# ── tool0 경로 설정 ────────────────────────────────────────────────────────
-# urdf_to_usd_v2.py에서 merge_fixed_joints=True로 임포트했기 때문에
-# tool0는 link6에 병합됨 → 마지막 링크 = link6
-tool0_path = ROBOT_PRIM + "/link6"
+# ── tool0 경로 자동 탐색 ───────────────────────────────────────────────────
+# URDF 임포트 결과에 따라 link6 / link_6 / tool0 등 명명이 다를 수 있어 자동 탐색
+tool0_path = None
+for _p in stage.Traverse():
+    _pp = _p.GetPath().pathString
+    if not _pp.startswith(ROBOT_PRIM):
+        continue
+    _name = _p.GetName().lower()
+    if _name in ("link6", "link_6", "tool0", "flange", "tcp", "wrist3"):
+        tool0_path = _pp
+        break
+if tool0_path is None:
+    _link_prims = [p for p in stage.Traverse()
+                   if p.GetPath().pathString.startswith(ROBOT_PRIM)
+                   and p.GetName().startswith("link")]
+    if _link_prims:
+        tool0_path = max(_link_prims, key=lambda p: p.GetName()).GetPath().pathString
 print(f"[bridge] 그리퍼 장착 기준: {tool0_path}")
 
 # ── Articulation 객체 ──────────────────────────────────────────────────────
@@ -99,7 +226,6 @@ from isaacsim.core.prims import SingleArticulation
 
 robot   = SingleArticulation(prim_path=robot_art_path,   name="m1013")
 gripper = SingleArticulation(prim_path=gripper_art_path, name="gripper")
-
 world.scene.add(robot)
 world.scene.add(gripper)
 world.reset()
@@ -107,12 +233,9 @@ world.reset()
 print(f"[bridge] M1013  관절: {robot.num_dof}개 → {robot.dof_names}")
 print(f"[bridge] 그리퍼 관절: {gripper.num_dof}개 → {gripper.dof_names}")
 
-# ── 그리퍼 장착 오프셋 설정 ────────────────────────────────────────────────
-# M1013 tool0 기준 그리퍼 장착 회전
-# 그리퍼 플랜지가 -Y 방향 → tool0 +Z 방향에 맞추려면 X축 +90° 회전
-# ⚠️ 실제로 Isaac Sim에서 확인 후 rpy 조정 필요
-MOUNT_RPY = np.array([np.pi / 2, 0.0, 0.0])   # (roll, pitch, yaw) rad
-MOUNT_XYZ = np.array([0.0, 0.0, 0.0])          # tool0 기준 오프셋 (m)
+# ── 그리퍼 장착 오프셋 (2026-04-27 GUI 캘리브레이션 결과) ──────────────────
+MOUNT_RPY = np.array([-np.pi / 2, 0.0, 0.0])   # tool0 +Y에 그리퍼 정면
+MOUNT_XYZ = np.array([0.0, 0.012, 0.0])        # link_6 +Y로 12mm (15→12로 더 붙임)
 
 def rpy_to_quat_wxyz(rpy):
     """roll-pitch-yaw → quaternion [w, x, y, z]"""
@@ -176,7 +299,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
-from control_msgs.msg import GripperCommand
+from std_msgs.msg import Float32   # GripperCommand가 Isaac Sim Python 3.11 번들에 없어 대체
 
 rclpy.init()
 
@@ -191,7 +314,7 @@ class BridgeNode(Node):
         self.create_subscription(
             JointState, f"/{args.topic}", self._robot_cb, qos)
         self.create_subscription(
-            GripperCommand, "/gripper_command", self._gripper_cb, qos)
+            Float32, "/gripper_command", self._gripper_cb, qos)
         self.state_pub = self.create_publisher(
             JointState, "/gripper_state", qos)
 
@@ -202,9 +325,10 @@ class BridgeNode(Node):
             self.robot_joints = np.array(msg.position)
 
     def _gripper_cb(self, msg):
-        self.target_opening = msg.position
+        # std_msgs/Float32: data = 열림 너비 (m, 0.0~0.067)
+        self.target_opening = msg.data
         self.get_logger().info(
-            f"그리퍼 명령: {msg.position*1000:.1f}mm")
+            f"그리퍼 명령: {msg.data*1000:.1f}mm")
 
     def publish_gripper_state(self, dof_pos):
         js = JointState()
@@ -241,23 +365,15 @@ try:
 
         # ── 그리퍼를 tool0에 붙이기 (kinematic follow) ─────────────────
         tool0_pos, tool0_quat = get_tool0_world_pose()
-
-        # 장착 회전 합성: tool0_quat * mount_quat
         gripper_quat = quat_multiply(tool0_quat, mount_quat)
-        # 장착 오프셋 (tool0 방향으로 회전된 오프셋)
         offset_world = rotate_vec(tool0_quat, MOUNT_XYZ)
         gripper_pos  = tool0_pos + offset_world
 
-        gripper.set_world_pose(
-            position=gripper_pos,
-            orientation=gripper_quat,
-        )
+        gripper.set_world_pose(position=gripper_pos, orientation=gripper_quat)
 
         # ── 그리퍼 관절 제어 ───────────────────────────────────────────
         joint_target = opening_to_joint(ros_node.target_opening)
-        n = gripper.num_dof
-        targets = np.full(n, joint_target)
-        gripper.set_joint_positions(targets)
+        gripper.set_joint_positions(np.full(gripper.num_dof, joint_target))
 
         # ── 그리퍼 상태 발행 ───────────────────────────────────────────
         cur_pos = gripper.get_joint_positions()

@@ -70,13 +70,13 @@ ensure_stack() {
 
     if [ "$with_isaac" = "1" ]; then
         echo "[5/6] Isaac Sim bridge..."
-        if docker exec doosan_kos pgrep -f m1013_ros2_bridge.py > /dev/null 2>&1; then
+        if docker exec doosan_kos pgrep -f m1013_gripper_bridge.py > /dev/null 2>&1; then
             echo "  ✓ 이미 실행 중"
         else
             docker exec -d doosan_kos bash -lc "
                 export PYTHONUNBUFFERED=1
                 export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRARY_PATH
-                /isaac-sim/python.sh /kos_workspace/isaac/m1013_ros2_bridge.py > /tmp/bridge.log 2>&1
+                /isaac-sim/python.sh /kos_workspace/isaac/m1013_gripper_bridge.py > /tmp/bridge.log 2>&1
             "
             echo -n "  → Isaac Sim 시작 대기 (보통 20-30초)"
             local ready=0
@@ -100,7 +100,7 @@ ensure_stack() {
         fi
 
         # Isaac Sim 이 켜져있으면 telemetry 창도 같이 띄움
-        echo "[6/6] Telemetry window..."
+        echo "[6/7] Telemetry window..."
         if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
             echo "  ✓ 이미 실행 중"
         else
@@ -114,6 +114,24 @@ ensure_stack() {
                 echo "  ✓ 시작됨"
             else
                 echo "  ⚠ 시작 실패. docker exec doosan_kos tail /tmp/telem.log 확인"
+            fi
+        fi
+
+        # Control Console (M1013 + 그리퍼 GUI 제어)
+        echo "[7/7] Control Console..."
+        if docker exec doosan_kos pgrep -f control_console.py > /dev/null 2>&1; then
+            echo "  ✓ 이미 실행 중"
+        else
+            docker exec -d doosan_kos bash -lc "
+                source /opt/ros/jazzy/setup.bash &&
+                source /ros2_ws/install/setup.bash &&
+                python3 /kos_workspace/scripts/control_console.py > /tmp/console.log 2>&1
+            "
+            sleep 2
+            if docker exec doosan_kos pgrep -f control_console.py > /dev/null 2>&1; then
+                echo "  ✓ 시작됨"
+            else
+                echo "  ⚠ 시작 실패. docker exec doosan_kos tail /tmp/console.log 확인"
             fi
         fi
     fi

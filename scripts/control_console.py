@@ -29,6 +29,7 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Float32
 from dsr_msgs2.msg import SpeedjStream
 from dsr_msgs2.srv import (
     MoveJoint,
@@ -139,10 +140,17 @@ class RobotInterface(Node):
 
         # speedj publisher
         self.pub_speedj = self.create_publisher(SpeedjStream, f"{SVC}/speedj_stream", 10)
+        # Gripper: Float32 (m, 0=closed, 0.067=fully open). 시뮬 브릿지 + 실 Dynamixel 노드 공통.
+        self.pub_gripper = self.create_publisher(Float32, "/gripper_command", 10)
         self._speedj_running = False
         self._speedj_thread = None
         self._speedj_target = [0.0] * 6
         self._speedj_acc = 30.0
+
+    def gripper_set(self, opening_m: float):
+        msg = Float32()
+        msg.data = float(max(0.0, min(0.067, opening_m)))
+        self.pub_gripper.publish(msg)
 
     def _on_js(self, msg: JointState):
         if len(msg.position) >= 6:
@@ -486,6 +494,9 @@ class ModeScreen(tk.Frame):
         self.title = title
         self.accent = accent
         self._build_header()
+        # Gripper footer (모든 모드 공통)
+        self.gripper_panel = GripperPanel(self, app)
+        self.gripper_panel.pack(side="bottom", fill="x", padx=14, pady=(0, 8))
         self.body = tk.Frame(self, bg=T.BG)
         self.body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
@@ -1246,6 +1257,67 @@ class MoveItScreen(ModeScreen):
         self.run_async(fetch, on_done=update)
 
 
+# ──────── Gripper footer (Home + 모든 모드 화면 공통) ─────
+class GripperPanel(tk.Frame):
+    """모든 화면 하단에 embed 되는 그리퍼 제어 위젯.
+    /gripper_command (std_msgs/Float32, 단위 m) 발행."""
+    MAX_M = 0.067
+
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=T.PANEL)
+        self.app = app
+
+        tk.Label(self, text="🤏 Gripper", bg=T.PANEL, fg=T.TITLE,
+                 font=tkfont.Font(family="DejaVu Sans", size=10, weight="bold")
+                 ).pack(side="left", padx=(12, 8), pady=8)
+
+        tk.Button(self, text="Open", command=self._open,
+                  bg=T.OK, fg=T.BG, relief="flat", bd=0,
+                  cursor="hand2", padx=10, pady=2,
+                  font=tkfont.Font(family="DejaVu Sans", size=9, weight="bold")
+                  ).pack(side="left", padx=2, pady=8)
+
+        tk.Button(self, text="Close", command=self._close,
+                  bg=T.WARN, fg=T.BG, relief="flat", bd=0,
+                  cursor="hand2", padx=10, pady=2,
+                  font=tkfont.Font(family="DejaVu Sans", size=9, weight="bold")
+                  ).pack(side="left", padx=2, pady=8)
+
+        # Slider: 0~67mm (release 시에만 publish)
+        self.var = tk.DoubleVar(value=self.MAX_M * 1000)
+        sl = tk.Scale(self, from_=0, to=self.MAX_M * 1000, orient="horizontal",
+                      resolution=1, variable=self.var, showvalue=True,
+                      bg=T.PANEL, fg=T.LABEL, troughcolor=T.PANEL_HI,
+                      activebackground=T.OK, highlightthickness=0,
+                      length=200, sliderlength=18,
+                      font=tkfont.Font(family="DejaVu Sans Mono", size=8))
+        sl.pack(side="left", padx=(8, 4), pady=4)
+        sl.bind("<ButtonRelease-1>", lambda e: self._publish(self.var.get() / 1000.0))
+
+        tk.Label(self, text="mm", bg=T.PANEL, fg=T.DIM,
+                 font=tkfont.Font(family="DejaVu Sans", size=9)
+                 ).pack(side="left", padx=(0, 8))
+
+        self.status_lbl = tk.Label(self, text="ready", bg=T.PANEL, fg=T.DIM,
+                                   font=tkfont.Font(family="DejaVu Sans", size=9))
+        self.status_lbl.pack(side="right", padx=12)
+
+    def _publish(self, opening_m):
+        try:
+            self.app.robot.gripper_set(opening_m)
+            self.status_lbl.config(text=f"sent: {opening_m*1000:.0f}mm", fg=T.OK)
+        except Exception as e:
+            self.status_lbl.config(text=f"err: {e}"[:40], fg=T.BAD)
+
+    def _open(self):
+        self.var.set(self.MAX_M * 1000)
+        self._publish(self.MAX_M)
+
+    def _close(self):
+        self.var.set(0)
+        self._publish(0.0)
+
+
 # ──────── Home (dashboard) ─────────────────────────────────
 class HomeScreen(tk.Frame):
     CARDS = [
@@ -1335,6 +1407,10 @@ class HomeScreen(tk.Frame):
                       bg=T.BG, fg=T.DIM,
                       font=tkfont.Font(family="DejaVu Sans", size=9))
         ft.pack(side="bottom", pady=10)
+
+        # Gripper footer
+        self.gripper_panel = GripperPanel(self, app)
+        self.gripper_panel.pack(side="bottom", fill="x", padx=20, pady=(2, 6))
 
         self.after(500, self._refresh)
 

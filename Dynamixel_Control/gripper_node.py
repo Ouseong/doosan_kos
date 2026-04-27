@@ -2,10 +2,10 @@
 """
 Dynamixel 그리퍼 ROS2 노드
 
-Subscribe: /gripper_command  (control_msgs/GripperCommand)
-  - position > 0  → 열기
-  - position == 0 → 닫기 (천천히 닫다가 토크 임계값 초과 시 유지)
-  - max_effort    → 토크 임계값 (mNm), 0이면 파라미터값 사용
+Subscribe: /gripper_command  (std_msgs/Float32)
+  - data > 0  → 열기 (m, 무시되지만 부호로만 판별)
+  - data == 0 → 닫기 (천천히 닫다가 토크 임계값 초과 시 유지)
+  - 토크 임계값은 ROS2 param 'torque_threshold' (mNm) 사용
 
 Publish:   /gripper_state   (sensor_msgs/JointState)
   - name:     ['gripper_left_joint', 'gripper_right_joint']
@@ -17,9 +17,8 @@ Publish:   /gripper_state   (sensor_msgs/JointState)
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from control_msgs.msg import GripperCommand
+from std_msgs.msg import Float32, Header
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Header
 from dynamixel_sdk import PortHandler, PacketHandler
 
 # ── 제어 테이블 주소 ──────────────────────────────────
@@ -84,7 +83,7 @@ class GripperNode(Node):
 
         # ── ROS2 Pub/Sub ─────────────────────────────────
         self.cmd_sub = self.create_subscription(
-            GripperCommand, '/gripper_command', self._cmd_cb, 10)
+            Float32, '/gripper_command', self._cmd_cb, 10)
 
         self.state_pub = self.create_publisher(JointState, '/gripper_state', 10)
 
@@ -102,21 +101,17 @@ class GripperNode(Node):
         self.pkt.write4ByteTxRx(self.port, self.dxl_id, ADDR_GOAL_VELOCITY, int(vel_unit))
 
     # ── /gripper_command 콜백 ────────────────────────────
-    def _cmd_cb(self, msg: GripperCommand):
-        threshold = msg.max_effort if msg.max_effort > 0 else self.torque_threshold
-
-        if msg.position > 0.0:
+    def _cmd_cb(self, msg: Float32):
+        if msg.data > 0.0:
             # 열기
             self.state = 'opening'
             self._set_velocity(OPEN_VEL_UNIT)
-            self.get_logger().info(f'그리퍼 열기')
-
+            self.get_logger().info(f'그리퍼 열기 ({msg.data*1000:.1f}mm 명령)')
         else:
-            # 닫기 — 토크 임계값 도달 시 유지
+            # 닫기 — 토크 임계값 도달 시 유지 (param 'torque_threshold' 사용)
             self.state = 'closing'
-            self.torque_threshold = threshold
             self._set_velocity(self.close_vel)
-            self.get_logger().info(f'그리퍼 닫기 (임계 토크: {threshold:.0f} mNm)')
+            self.get_logger().info(f'그리퍼 닫기 (임계 토크: {self.torque_threshold:.0f} mNm)')
 
     # ── 상태 발행 + 토크 감지 루프 ──────────────────────
     def _publish_state(self):
