@@ -16,13 +16,19 @@
 from pxr import Usd, UsdGeom, UsdPhysics, Gf, Vt, Sdf
 import open3d as o3d
 import numpy as np
+import os
 
-# ── 경로 설정 ──────────────────────────────────────────────────────────────
-BASE      = 'C:/Users/oskwo/Desktop/doosan_kos/usd/parts/'
-USD_OUT   = BASE + 'gripper_assembly_physics.usd'
-STL_BODY  = BASE + 'gripper_body_urdf.stl'
-STL_LEFT  = BASE + 'gripper_left_urdf.stl'
-STL_RIGHT = BASE + 'gripper_right_urdf.stl'
+# ── 경로 설정 (Windows / Docker 자동 감지) ────────────────────────────────
+if os.path.exists('/kos_workspace'):
+    BASE = '/kos_workspace/usd/parts/'          # Docker
+else:
+    BASE = os.path.join(os.path.dirname(__file__), '..', 'usd', 'parts', '')
+    BASE = os.path.normpath(BASE) + os.sep      # Windows / 로컬
+
+USD_OUT   = os.path.join(BASE, 'gripper_assembly_physics.usd')
+STL_BODY  = os.path.join(BASE, 'gripper_body_urdf.stl')
+STL_LEFT  = os.path.join(BASE, 'gripper_left_urdf.stl')
+STL_RIGHT = os.path.join(BASE, 'gripper_right_urdf.stl')
 
 SCALE = 0.001  # mm → m
 
