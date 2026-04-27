@@ -45,22 +45,51 @@ doosan_kos/
 │   ├── Dockerfile              Isaac Sim 5.1.0 + ROS2 Jazzy + Doosan deps
 │   ├── bootstrap_ws.sh         doosan-robot2 clone + colcon build 자동화
 │   ├── entrypoint.sh           컨테이너 시작 시 ROS2 env 세팅
-│   ├── container.sh            start/enter/stop/clean 관리 스크립트
+│   ├── container.sh            start/enter/stop/clean 관리 스크립트 (--gpu N 지원)
 │   ├── run_emulator.sh         DRCF 에뮬레이터 실행
 │   └── register_qemu.sh        aarch64 에서 x86_64 DRCF 돌리기 위한 binfmt 등록
 │
 ├── isaac/
-│   ├── m1013_ros2_bridge.py    ★ 메인 브리지 (ROS2 joint_states → Isaac Sim 관절)
+│   ├── m1013_ros2_bridge.py    M1013 단독 브리지 (ROS2 joint_states → Isaac Sim)
+│   ├── m1013_gripper_bridge.py ★ 통합 브리지 (M1013 + 그리퍼 동시 제어)
+│   ├── create_gripper_usd.py   ★ 그리퍼 물리 USD 생성 (PrismaticJoint 포함)
+│   ├── gripper_isaac_bridge.py 그리퍼 단독 Isaac Sim 브리지
 │   │
 │   ├── urdf_to_usd.py          URDF → USD 변환 (v1, 기본 옵션)
 │   ├── urdf_to_usd_v2.py       URDF → USD 변환 (v2, merge_fixed_joints=True)
-│   ├── assemble_m1013.py       ★ M1013 USD 수동 조립 (base + physics sublayer)
+│   ├── assemble_m1013.py       M1013 USD 수동 조립 (base + physics sublayer)
 │   │
 │   ├── flatten_usd.py          USD 평탄화 (디버깅)
 │   ├── flatten_deep.py         Dependencies 분석 + 평탄화 (디버깅)
 │   └── inspect_usd.py          USD prim 구조 출력 (디버깅)
 │
+├── usd/
+│   ├── full/
+│   │   ├── gripper_full.stl            전체 조립 메쉬 (원본)
+│   │   ├── gripper_full_urdf.stl       플랜지 원점 기준 변환 메쉬 (URDF용)
+│   │   ├── gripper_full.urdf           단일 링크 URDF
+│   │   └── urdf_preview.png            3방향 뷰 프리뷰 이미지
+│   │
+│   └── parts/
+│       ├── gripper_body.stl/urdf       몸체 파트
+│       ├── gripper_left.stl/urdf       왼쪽 플레이트 파트
+│       ├── gripper_right.stl/urdf      오른쪽 플레이트 파트
+│       ├── gripper_assembly.urdf       ★ 조립 URDF (PrismaticJoint + mimic)
+│       ├── gripper_assembly_physics.usd ★ Isaac Sim 물리 USD (ArticulationRoot 포함)
+│       └── gripper_parts_preview.png   파트별 프리뷰 이미지
+│
+├── Dynamixel_Control/
+│   ├── gripper_node.py         ★ ROS2 노드 (/gripper_command 수신 → 모터 제어)
+│   ├── gripper_test.py         수동 조그 테스트 (pygame GUI)
+│   ├── original.py             원본 제어 코드
+│   └── return_to_zero.py       영점 복귀
+│
 ├── scripts/
+│   ├── control_console.py      메인 GUI (6모드 대시보드)
+│   ├── telemetry.py            실시간 텔레메트리 뷰어
+│   ├── run_jog.sh              Isaac Sim + Console + Telemetry 한 번에 실행
+│   ├── run_telemetry.sh        Telemetry 단독 실행
+│   ├── _ensure_stack.sh        스택 상태 보장 (idempotent)
 │   ├── m1013_sim_bringup.launch.py   DRCF 에뮬레이터 모드
 │   └── real_bringup.launch.py        실제 로봇 모드
 │
@@ -134,6 +163,11 @@ docker rm -f emulator                   # 에뮬레이터도 정리
 - 다음 사람은 같은 컨테이너 재사용 (이미 빌드돼있어서 즉시 부팅)
 - 누군가 망가뜨려서 처음부터 빌드하려면 `bash docker/container.sh clean-all` 후 다시 빠른시작 A 부터
 - GPU/X11 디스플레이도 공유 자원이라 동시에 두 사람이 Isaac Sim 띄우면 충돌. 시간 나눠 쓰기 권장.
+- 특정 GPU 만 사용하려면 `--gpu N` 플래그 사용 (N = nvidia-smi 의 GPU 인덱스):
+  ```bash
+  bash docker/container.sh start --gpu 1   # GPU 1번만 사용
+  bash docker/container.sh start           # 기본: 모든 GPU
+  ```
 
 ## 사전 요구사항
 
@@ -205,7 +239,38 @@ docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/assemb
 # 결과: /tmp/m1013_v2/m1013_full.usda (mesh 40개 + joint 6개 포함)
 ```
 
-### 5. Doosan ROS2 driver 실행 (컨테이너)
+### 5. 그리퍼 물리 USD 준비 (최초 1회 — 이미 git 포함)
+
+`usd/parts/gripper_assembly_physics.usd` 는 git 에 이미 포함되어 있어 별도 생성 불필요.
+
+STL 이 변경되거나 처음부터 재생성하려면 로컬 PC 에서:
+```bash
+pip install usd-core open3d matplotlib
+
+# STL 파일이 usd/parts/ 에 있어야 함:
+#   gripper_body_urdf.stl / gripper_left_urdf.stl / gripper_right_urdf.stl
+python isaac/create_gripper_usd.py
+
+# 재생성 후 git 에 반영
+git add usd/parts/gripper_assembly_physics.usd
+git commit -m "update gripper USD"
+git push
+```
+
+그리퍼 물리 파라미터 (`create_gripper_usd.py` 상단에서 수정):
+
+| 파라미터 | 기본값 | 설명 |
+|---------|--------|------|
+| `MASS_BODY` | 0.8 kg | 그리퍼 몸체 질량 |
+| `MASS_PLATE` | 0.3 kg | 좌/우 플레이트 각 질량 |
+| `MAX_TRAVEL` | 0.0335 m | 플레이트 최대 이동 거리 (33.5 mm) |
+| Stiffness | 1000 N/m | PrismaticJoint drive 강성 |
+| Damping | 100 N·s/m | PrismaticJoint drive 감쇠 |
+| Max Force | 50 N | PrismaticJoint drive 최대 힘 |
+
+관절 규약: `position = 0` → 완전 열림 (67 mm), `position = 0.0335` → 완전 닫힘
+
+### 6. Doosan ROS2 driver 실행 (컨테이너)
 ```bash
 docker exec -d doosan_kos bash -c "
 source /opt/ros/jazzy/setup.bash
@@ -215,7 +280,7 @@ ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
 "
 ```
 
-### 6. Isaac Sim 브리지 실행
+### 7. Isaac Sim 브리지 실행 — M1013 단독
 ```bash
 docker exec doosan_kos bash -c "
 export PYTHONUNBUFFERED=1
@@ -226,7 +291,48 @@ export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRA
 
 Isaac Sim 창이 뜨고 M1013 로봇이 viewport 에 보입니다.
 
-### 7. ★ 한 줄 짜리 실행 — GUI 도구
+### 8. ★ Isaac Sim 브리지 실행 — M1013 + 그리퍼 통합
+
+M1013 끝(link6)에 그리퍼가 달린 채로 Isaac Sim 시각화 + ROS2 제어:
+
+```bash
+docker exec doosan_kos bash -c "
+export PYTHONUNBUFFERED=1
+export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRARY_PATH
+/isaac-sim/python.sh /kos_workspace/isaac/m1013_gripper_bridge.py
+"
+```
+
+그리퍼 열기/닫기 (별도 터미널에서):
+```bash
+# 완전 열기 (67mm)
+docker exec doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+ros2 topic pub --once /gripper_command control_msgs/msg/GripperCommand '{position: 0.067, max_effort: 50.0}'
+"
+# 완전 닫기
+docker exec doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+ros2 topic pub --once /gripper_command control_msgs/msg/GripperCommand '{position: 0.0, max_effort: 50.0}'
+"
+# 반 열기 (33.5mm)
+docker exec doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+ros2 topic pub --once /gripper_command control_msgs/msg/GripperCommand '{position: 0.0335, max_effort: 50.0}'
+"
+```
+
+현재 그리퍼 관절 위치 확인:
+```bash
+docker exec doosan_kos bash -c "
+source /opt/ros/jazzy/setup.bash
+ros2 topic echo /gripper_state
+"
+```
+
+> ⚠️ **장착 회전 주의**: `MOUNT_RPY = [π/2, 0, 0]` 은 추정값입니다. Isaac Sim 실행 후 그리퍼 방향이 틀렸으면 `m1013_gripper_bridge.py` 의 `MOUNT_RPY` 를 조정하세요.
+
+### 9. ★ 한 줄 짜리 실행 — GUI 도구
 
 처음 셋업이 끝났다면 이후엔 그냥:
 
@@ -248,7 +354,7 @@ bash scripts/run_jog.sh --no-isaac
 | `control_console.py` | **메인 GUI.** 6 모드 dashboard: ① Joint Slider ② Task Space (MoveL/MoveJX) ③ Incremental Jog ④ Waypoint Recorder ⑤ Speed Control (deadman) ⑥ MoveIt2 launcher |
 | `telemetry.py` | 3섹션 라이브 뷰: ① 직접 측정 (관절 위치, 토크) ② DRCF 계산값 (관절 속도, 외부 토크, TCP 위치/속도/힘) ③ ROS 측 계산값 (관절·TCP 가속도, EMA 평활) |
 
-### 8. 수동 동작 테스트
+### 10. 수동 동작 테스트
 ```bash
 docker exec doosan_kos bash -c "
 source /opt/ros/jazzy/setup.bash
@@ -259,6 +365,60 @@ ros2 service call /dsr01/motion/move_joint dsr_msgs2/srv/MoveJoint \
 ```
 
 Isaac Sim viewport 에서 joint_1 이 45도 회전하는 걸 확인할 수 있습니다.
+
+---
+
+## Dynamixel 그리퍼 노드 (실제 하드웨어)
+
+`Dynamixel_Control/gripper_node.py` 는 실제 Dynamixel 모터와 ROS2 를 연결하는 노드.  
+Isaac Sim 브리지(`/gripper_command`)와 동일한 토픽 인터페이스를 사용하므로, 시뮬레이션과 실제 하드웨어를 토픽 하나로 전환 가능.
+
+### 사전 설치
+
+```bash
+pip install dynamixel_sdk
+```
+
+### 실행
+
+```bash
+# 기본 파라미터
+ros2 run doosan_kos gripper_node
+
+# 파라미터 지정
+ros2 run doosan_kos gripper_node --ros-args \
+  -p device:=/dev/ttyUSB0 \
+  -p baudrate:=57600 \
+  -p dxl_id:=3 \
+  -p torque_threshold:=300 \
+  -p close_velocity:=5 \
+  -p publish_rate:=20.0
+```
+
+| 파라미터 | 기본값 | 설명 |
+|---------|--------|------|
+| `device` | `/dev/ttyUSB0` | Dynamixel 시리얼 포트 |
+| `baudrate` | `57600` | 통신 속도 |
+| `dxl_id` | `3` | Dynamixel 모터 ID |
+| `torque_threshold` | `300` | 파지 감지 토크 임계값 (mNm) |
+| `close_velocity` | `5` | 닫힘 속도 (RPM) |
+| `publish_rate` | `20.0` | 상태 발행 주기 (Hz) |
+
+### 토픽
+
+| 토픽 | 타입 | 방향 | 설명 |
+|------|------|------|------|
+| `/gripper_command` | `control_msgs/GripperCommand` | 수신 | `position`: 열림 너비 (m), `max_effort`: 토크 임계값 (0이면 기본값 사용) |
+| `/gripper_state` | `sensor_msgs/JointState` | 발행 | `name`: [left_joint, right_joint], `position`: 각 플레이트 변위 (m) |
+
+### 동작 방식
+
+1. `/gripper_command.position` 수신
+2. `position > 현재` → 열기 (모터 반시계)
+3. `position < 현재` → 천천히 닫기 (`close_velocity` RPM), 토크가 `torque_threshold` 초과하면 정지·유지
+4. `/gripper_state` 주기적 발행
+
+수동 조그 테스트는 `Dynamixel_Control/gripper_test.py` (pygame GUI) 사용.
 
 ---
 
