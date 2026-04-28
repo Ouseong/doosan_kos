@@ -23,8 +23,9 @@ os.environ.setdefault("ROS_DOMAIN_ID", "0")
 os.environ.setdefault("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--topic",    default="dsr01/joint_states")
-parser.add_argument("--headless", action="store_true")
+parser.add_argument("--topic",      default="dsr01/joint_states")
+parser.add_argument("--real_topic", default="dsr01_real/joint_states")
+parser.add_argument("--headless",   action="store_true")
 parser.add_argument("--robot_usd",   default="/tmp/m1013_v2/m1013_full.usda")
 parser.add_argument("--gripper_usd", default="/kos_workspace/usd/parts/gripper_assembly_physics.usd")
 args, unknown = parser.parse_known_args()
@@ -311,18 +312,54 @@ class BridgeNode(Node):
         self.robot_joints   = None
         self.target_opening = MAX_OPENING   # 시작 시 완전 열림
 
+        # Dual-namespace mirror: subscribe both sim (/dsr01) and real (/dsr01_real)
+        # joint_states. The viewport follows whichever side moved most recently
+        # — so when the operator sends to sim it shows sim, and when the real
+        # robot is jogged it shows the real robot.
+        self._sources = {
+            "sim":  {"joints": None, "last_change_t": 0.0},
+            "real": {"joints": None, "last_change_t": 0.0},
+        }
+        self._last_active_src = None
+
         self.create_subscription(
-            JointState, f"/{args.topic}", self._robot_cb, qos)
+            JointState, f"/{args.topic}",
+            lambda m: self._joint_cb(m, "sim"), qos)
+        self.create_subscription(
+            JointState, f"/{args.real_topic}",
+            lambda m: self._joint_cb(m, "real"), qos)
         self.create_subscription(
             Float32, "/gripper_command", self._gripper_cb, qos)
         self.state_pub = self.create_publisher(
             JointState, "/gripper_state", qos)
 
-        self.get_logger().info("브릿지 시작. M1013 + 그리퍼 대기 중...")
+        self.get_logger().info(
+            f"브릿지 시작. sim=/{args.topic}, real=/{args.real_topic}, dual-mirror.")
 
-    def _robot_cb(self, msg):
-        if len(msg.position) > 0:
-            self.robot_joints = np.array(msg.position)
+    def _joint_cb(self, msg, source):
+        import time as _time
+        if len(msg.position) == 0:
+            return
+        new_pos = np.array(msg.position)
+        src = self._sources[source]
+        # 자세 변화 감지 (1 mrad 이상이면 "방금 움직였다"로 판단)
+        if src["joints"] is None or not np.allclose(new_pos, src["joints"], atol=1e-3):
+            src["last_change_t"] = _time.time()
+        src["joints"] = new_pos
+
+        # 마지막에 움직인 source를 viewport에 반영
+        sim_t  = self._sources["sim"]["last_change_t"]
+        real_t = self._sources["real"]["last_change_t"]
+        if real_t > sim_t and self._sources["real"]["joints"] is not None:
+            active = "real"
+        elif self._sources["sim"]["joints"] is not None:
+            active = "sim"
+        else:
+            active = source
+        self.robot_joints = self._sources[active]["joints"]
+        if self._last_active_src != active:
+            self.get_logger().info(f"[mirror] active source: {active}")
+            self._last_active_src = active
 
     def _gripper_cb(self, msg):
         # std_msgs/Float32: data = 열림 너비 (m, 0.0~0.067)
