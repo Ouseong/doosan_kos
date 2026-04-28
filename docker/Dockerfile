@@ -13,6 +13,19 @@ ENV HOME=/isaac-sim
 # ── root로 전환 (패키지 설치용) ──
 USER root
 
+# ── apt 미러를 한국 (kakao) 으로 변경 ──
+# archive.ubuntu.com 으로 가는 KR 라우팅이 불안정해서 큰 패키지 받다가 끊김 발생.
+# Ubuntu 24.04 는 deb822 포맷 (.sources) 과 legacy (.list) 둘 다 가능해서 모두 처리.
+RUN set -e; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] && sed -i \
+            -e 's|http://archive.ubuntu.com/ubuntu|http://mirror.kakao.com/ubuntu|g' \
+            -e 's|http://security.ubuntu.com/ubuntu|http://mirror.kakao.com/ubuntu|g' \
+            -e 's|https://archive.ubuntu.com/ubuntu|https://mirror.kakao.com/ubuntu|g' \
+            -e 's|https://security.ubuntu.com/ubuntu|https://mirror.kakao.com/ubuntu|g' \
+            "$f" || true; \
+    done
+
 # ── locale 설정 (ROS2 필수 요건) ──
 RUN apt-get update && apt-get install -y locales \
     && locale-gen en_US en_US.UTF-8 \
