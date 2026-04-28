@@ -17,6 +17,7 @@ Modes:
 import json
 import math
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -46,9 +47,15 @@ from dsr_msgs2.srv import (
 )
 
 # ──────── Workspace safety limits ──────────────────────────
-TCP_Z_MIN_MM = 50.0          # don't let TCP go below this (floor + margin)
+TCP_Z_MIN_MM = 50.0          # don't let the gripper finger-tip drop below this (floor + margin)
 COLLISION_SENSITIVITY = 50   # 0-100 ; controller-side reactive stop threshold
 SINGULARITY_MODE = 0         # 0=AVOID, 1=TASK_STOP, 2=VAR_VEL
+
+# Gripper finger-tip in tool0 frame (mm). Derived from URDF + bridge mount:
+#   bridge attaches the gripper at tool0 with translation (0, +12mm, 0) and Rx(-90°);
+#   URDF places the finger-tip at gripper-base + (0, -158.1mm, 0).
+#   Composing: tip_in_tool0 = (0, +12, 0) + Rx(-90°)·(0, -158.1, 0) = (0, +12, +158.1).
+GRIPPER_TIP_TOOL0_MM = (0.0, 12.0, 158.1)
 
 ROBOT_ID = "dsr01"
 SVC = f"/{ROBOT_ID}/dsr_controller2"
@@ -105,6 +112,32 @@ HOME_POSE_DEG = [0.0, 0.0, -90.0, 0.0, -90.0, 0.0]
 
 
 # ──────── Robot Interface ──────────────────────────────────
+def _zyz_to_R(deg_a, deg_b, deg_c):
+    """Doosan posx orientation (A, B, C) is intrinsic ZYZ Euler in degrees.
+    Returns the 3x3 rotation matrix R = Rz(A) · Ry(B) · Rz(C)."""
+    a, b, c = (math.radians(d) for d in (deg_a, deg_b, deg_c))
+    ca, sa = math.cos(a), math.sin(a)
+    cb, sb = math.cos(b), math.sin(b)
+    cc, sc = math.cos(c), math.sin(c)
+    return (
+        ( ca*cb*cc - sa*sc, -ca*cb*sc - sa*cc,  ca*sb),
+        ( sa*cb*cc + ca*sc, -sa*cb*sc + ca*cc,  sa*sb),
+        (            -sb*cc,             sb*sc,     cb),
+    )
+
+
+def gripper_tip_world(posx):
+    """World coords (mm) of the gripper finger-tip from a TCP posx
+    (XYZ in mm, ABC as ZYZ-Euler degrees, expressed in BASE/WORLD ref)."""
+    R = _zyz_to_R(posx[3], posx[4], posx[5])
+    tx, ty, tz = GRIPPER_TIP_TOOL0_MM
+    return (
+        posx[0] + R[0][0]*tx + R[0][1]*ty + R[0][2]*tz,
+        posx[1] + R[1][0]*tx + R[1][1]*ty + R[1][2]*tz,
+        posx[2] + R[2][0]*tx + R[2][1]*ty + R[2][2]*tz,
+    )
+
+
 class RobotInterface(Node):
     """All ROS2 motion plumbing in one place."""
 
@@ -263,13 +296,18 @@ class RobotInterface(Node):
 
     @staticmethod
     def _check_workspace(posx, ref):
-        """Reject targets that go below the floor (BASE/WORLD only)."""
-        # ref: 0=BASE, 1=TOOL, 2=WORLD. Z guard makes sense only in BASE/WORLD.
-        if ref not in (0, 2):
+        """Reject targets where the gripper finger-tip would dip below the
+        floor margin. Operates on the tip in world coords (computed from TCP
+        pose + tool0→tip offset), not on the bare TCP, because the gripper
+        sticks out ~158mm past the flange."""
+        if ref not in (0, 2):  # 0=BASE, 2=WORLD; tool/relative refs skip the check
             return True, ""
-        z = posx[2]
-        if z < TCP_Z_MIN_MM:
-            return False, f"target Z={z:.1f}mm < floor margin {TCP_Z_MIN_MM:.0f}mm"
+        tip_x, tip_y, tip_z = gripper_tip_world(posx)
+        if tip_z < TCP_Z_MIN_MM:
+            return False, (
+                f"gripper tip Z={tip_z:.1f}mm < floor {TCP_Z_MIN_MM:.0f}mm "
+                f"(TCP Z={posx[2]:.1f}mm)"
+            )
         return True, ""
 
     def _fkin_check(self, posj_deg, ref=0):
@@ -412,10 +450,9 @@ class RobotInterface(Node):
             return
         self._speedj_running = True
 
-        def loop():
-            margin = 5.0  # stop this many degrees before limit
+        def publish_loop():
+            margin = 5.0  # stop this many degrees before joint limit
             while self._speedj_running:
-                # safety: clamp commanded velocity if approaching limit
                 safe = list(self._speedj_target)
                 for i, v in enumerate(safe):
                     if abs(v) < 0.01:
@@ -431,8 +468,34 @@ class RobotInterface(Node):
                 self.pub_speedj.publish(msg)
                 time.sleep(0.05)
 
-        self._speedj_thread = threading.Thread(target=loop, daemon=True)
+        # Floor watchdog: live jog bypasses pre-flight workspace checks, so
+        # poll fkin while streaming and zero-out the moment the gripper tip
+        # would cross below the floor margin. Runs in its own thread because
+        # the fkin service call could block the publish loop otherwise.
+        def floor_watchdog():
+            while self._speedj_running:
+                time.sleep(0.3)
+                if not self._speedj_running:
+                    return
+                try:
+                    ok, why = self._fkin_check(self.joint_pos_deg, ref=0)
+                except Exception:
+                    continue
+                if not ok and self._speedj_running:
+                    self.get_logger().warn(f"speedj auto-stop: {why}")
+                    self._speedj_running = False
+                    stop = SpeedjStream()
+                    stop.vel = [0.0] * 6
+                    stop.acc = [self._speedj_acc] * 6
+                    stop.time = 0.0
+                    for _ in range(3):
+                        self.pub_speedj.publish(stop)
+                        time.sleep(0.02)
+                    return
+
+        self._speedj_thread = threading.Thread(target=publish_loop, daemon=True)
         self._speedj_thread.start()
+        threading.Thread(target=floor_watchdog, daemon=True).start()
 
     def speedj_stop(self):
         self._speedj_running = False
@@ -448,39 +511,100 @@ class RobotInterface(Node):
     # ── real-robot driver management ──
     def start_real_driver(self, robot_ip: str) -> bool:
         """Launch a second dsr_bringup2 driver pointing at the real robot,
-        in namespace /dsr01_real. Returns True if move_joint becomes available."""
+        in namespace /dsr01_real. Returns True only when the driver actually
+        connects to DRCF — service-name registration alone is not enough,
+        because ros2_control_node registers services even when the host is
+        unreachable, which would mis-report a fake 'connected' state."""
         self.real_ip = robot_ip
-        # docker exec -d to launch in container
-        cmd = (
+        log_path = "/tmp/real_driver.log"
+        try:
+            open(log_path, "w").close()
+        except Exception:
+            pass
+        cmd = [
+            "bash", "-lc",
             "source /opt/ros/jazzy/setup.bash && "
             "source /ros2_ws/install/setup.bash && "
-            f"ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py "
+            f"exec ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py "
             f"name:={REAL_ROBOT_ID} model:=m1013 mode:=real "
-            f"host:={robot_ip} port:=12345 gui:=false "
-            f"> /tmp/real_driver.log 2>&1"
-        )
+            f"host:={robot_ip} port:=12345 gui:=false",
+        ]
         try:
-            subprocess.Popen(["docker", "exec", "-d", "doosan_kos", "bash", "-lc", cmd])
+            logf = open(log_path, "ab")
+            self._real_proc = subprocess.Popen(
+                cmd, stdout=logf, stderr=subprocess.STDOUT)
         except Exception as e:
             self.get_logger().error(f"failed to launch real driver: {e}")
             return False
-        # poll for service readiness up to 30s
-        for _ in range(30):
+
+        success_marker = "Connected to DRCF"
+        fail_keywords = (
+            "Connection refused", "connect failed", "cannot connect",
+            "No route to host", "Network is unreachable", "Traceback",
+        )
+        deadline = time.time() + 30.0
+        while time.time() < deadline:
             try:
-                r = subprocess.run(
-                    ["docker", "exec", "doosan_kos", "bash", "-c",
-                     "source /opt/ros/jazzy/setup.bash && "
-                     f"timeout 1 ros2 service list 2>/dev/null | "
-                     f"grep -c '/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint$'"],
-                    capture_output=True, text=True, timeout=3)
-                if int(r.stdout.strip() or "0") > 0:
-                    self.real_driver_started = True
-                    self._lazy_create_real_clients()
-                    return True
+                with open(log_path, "r") as f:
+                    log = f.read()
+            except Exception:
+                log = ""
+            if success_marker in log:
+                self.real_driver_started = True
+                self._lazy_create_real_clients()
+                return True
+            if any(k in log for k in fail_keywords):
+                last = log.strip().splitlines()[-1] if log.strip() else "no log"
+                self.get_logger().warn(
+                    f"real driver: connection failure — {last}")
+                self._kill_real_driver()
+                return False
+            if self._real_proc.poll() is not None:
+                self.get_logger().warn(
+                    f"real driver: process exited (rc={self._real_proc.returncode})")
+                return False
+            time.sleep(1)
+
+        self.get_logger().warn(
+            f"real driver: 30s timeout — no DRCF connection at {robot_ip}:12345")
+        self._kill_real_driver()
+        return False
+
+    def _kill_real_driver(self):
+        proc = getattr(self, "_real_proc", None)
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
             except Exception:
                 pass
-            time.sleep(1)
-        return False
+        try:
+            subprocess.run(
+                ["pkill", "-f", f"name:={REAL_ROBOT_ID}"],
+                check=False, timeout=3)
+        except Exception:
+            pass
+        self.real_driver_started = False
+        self._real_clients = {}
+
+    @staticmethod
+    def _robot_reachable(ip: str, port: int, timeout: float = 1.0) -> bool:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        try:
+            s.connect((ip, port))
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
 
     def _lazy_create_real_clients(self):
         """Create service clients for the real-robot namespace."""
@@ -497,18 +621,22 @@ class RobotInterface(Node):
         }
 
     def _poll_real_driver(self):
-        """Detect a real driver started outside this process and attach to it."""
+        """Detect a real driver started outside this process and attach to it.
+        Service registration alone is not enough — also require that the robot
+        IP:port is actually reachable so we don't latch onto a driver that's
+        still hung on an unreachable host."""
         if self.real_driver_started:
             self._real_detect_timer.cancel()
             return
         target = f"/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint"
-        for name, _ in self.get_service_names_and_types():
-            if name == target:
-                self.real_driver_started = True
-                self._lazy_create_real_clients()
-                self.get_logger().info(f"Detected external real driver at {target}")
-                self._real_detect_timer.cancel()
-                return
+        if not any(name == target for name, _ in self.get_service_names_and_types()):
+            return
+        if not self._robot_reachable(self.real_ip, 12345):
+            return
+        self.real_driver_started = True
+        self._lazy_create_real_clients()
+        self.get_logger().info(f"Detected external real driver at {target}")
+        self._real_detect_timer.cancel()
 
     def _client_for(self, kind: str, real: bool):
         """Pick sim or real client for the given motion kind."""
@@ -1637,8 +1765,60 @@ class HomeScreen(tk.Frame):
 
         tk.Frame(dlg, height=1, bg=T.BORDER).pack(fill="x", padx=16, pady=14)
 
+        def show_not_connected_modal():
+            sub = tk.Toplevel(dlg)
+            sub.title("Real Robot Not Connected")
+            sub.configure(bg=T.BG)
+            sub.transient(dlg)
+            sub.grab_set()
+            sub.resizable(False, False)
+            w, h = 460, 280
+            dlg.update_idletasks()
+            x = dlg.winfo_rootx() + (dlg.winfo_width()  - w) // 2
+            y = dlg.winfo_rooty() + (dlg.winfo_height() - h) // 2
+            sub.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+
+            header = tk.Frame(sub, bg=T.WARN, height=64)
+            header.pack(fill="x"); header.pack_propagate(False)
+            tk.Label(header, text="⚠  REAL ROBOT NOT CONNECTED",
+                     bg=T.WARN, fg=T.BG,
+                     font=tkfont.Font(family="DejaVu Sans", size=14, weight="bold")
+                    ).pack(pady=18)
+
+            body = tk.Frame(sub, bg=T.BG)
+            body.pack(fill="both", expand=True, padx=24, pady=18)
+
+            tk.Label(body,
+                     text="Real driver가 아직 연결돼있지 않아요.\n지금은 SIM 모드만 사용할 수 있어요.",
+                     bg=T.BG, fg=T.VAL, justify="center",
+                     font=tkfont.Font(family="DejaVu Sans", size=11)
+                    ).pack(pady=(2, 10))
+            tk.Label(body,
+                     text="REAL / PREVIEW 모드를 쓰려면 먼저\n'Start Real Driver' 버튼으로 연결하세요.",
+                     bg=T.BG, fg=T.DIM, justify="center",
+                     font=tkfont.Font(family="DejaVu Sans", size=9)
+                    ).pack(pady=(0, 14))
+
+            def close():
+                sub.destroy()
+
+            tk.Button(body, text="OK", command=close,
+                      bg=T.JOINT, fg=T.BG, activebackground=T.PANEL_HI,
+                      font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold"),
+                      relief="flat", padx=28, pady=10, cursor="hand2", bd=0,
+                     ).pack(side="bottom")
+
+            sub.protocol("WM_DELETE_WINDOW", close)
+            sub.bind("<Escape>", lambda _e: close())
+            sub.bind("<Return>", lambda _e: close())
+            sub.wait_window()
+
         def apply_and_close():
-            self.app.robot.target_mode = mode_var.get()
+            new_mode = mode_var.get()
+            if new_mode in ("real", "preview") and not self.app.robot.real_driver_started:
+                show_not_connected_modal()
+                return
+            self.app.robot.target_mode = new_mode
             self.app.robot.real_ip = ip_var.get().strip()
             dlg.destroy()
 
