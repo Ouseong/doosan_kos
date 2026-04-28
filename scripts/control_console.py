@@ -140,6 +140,9 @@ class RobotInterface(Node):
         self.real_driver_started = False
         # real-robot service clients (lazily created when real driver is started)
         self._real_clients = {}
+        # Auto-detect a real driver launched outside this process
+        # (e.g. by an external script). Cancels itself once detected.
+        self._real_detect_timer = self.create_timer(2.0, self._poll_real_driver)
 
         # speedj publisher
         self.pub_speedj = self.create_publisher(SpeedjStream, f"{SVC}/speedj_stream", 10)
@@ -253,7 +256,7 @@ class RobotInterface(Node):
             return ok_sim
         proceed = True
         if confirm_real_callback:
-            proceed = bool(confirm_real_callback(clamped))
+            proceed = bool(confirm_real_callback(clamped, kind="movej"))
         if not proceed:
             return ok_sim
         return self._send_movej_one(clamped, vel, acc, sync, real=True)
@@ -284,12 +287,9 @@ class RobotInterface(Node):
         posx = list(r.conv_posx)
         return self._check_workspace(posx, ref)
 
-    def movejx(self, posx, vel=30.0, acc=30.0, ref=0, sol=2, sync=0) -> bool:
-        ok, why = self._check_workspace(posx, ref)
-        if not ok:
-            self.get_logger().warn(f"movejx blocked: {why}")
-            return False
-        if not self.cli_movejx.wait_for_service(timeout_sec=2.0):
+    def _send_movejx_one(self, posx, vel, acc, ref, sol, sync, real):
+        cli = self._client_for("movejx", real=real)
+        if not cli or not cli.wait_for_service(timeout_sec=2.0):
             return False
         req = MoveJointx.Request()
         req.pos = [float(p) for p in posx]
@@ -297,16 +297,40 @@ class RobotInterface(Node):
         req.time = 0.0; req.radius = 0.0
         req.ref = int(ref); req.mode = 0
         req.blend_type = 0; req.sol = int(sol); req.sync_type = int(sync)
-        r = self._wait(self.cli_movejx.call_async(req), 120.0)
+        r = self._wait(cli.call_async(req), 120.0)
         return bool(r and r.success)
 
-    def movel(self, posx, vel_lin=100.0, vel_ang=30.0, acc_lin=200.0, acc_ang=60.0,
-              ref=0, sync=0) -> bool:
+    def movejx(self, posx, vel=30.0, acc=30.0, ref=0, sol=2, sync=0,
+               confirm_real_callback=None) -> bool:
         ok, why = self._check_workspace(posx, ref)
         if not ok:
-            self.get_logger().warn(f"movel blocked: {why}")
+            self.get_logger().warn(f"movejx blocked: {why}")
             return False
-        if not self.cli_movel.wait_for_service(timeout_sec=2.0):
+        mode = self.target_mode
+        if mode == "sim":
+            return self._send_movejx_one(posx, vel, acc, ref, sol, sync, real=False)
+        if mode == "real":
+            if not self.real_driver_started:
+                self.get_logger().warn("real mode requested but real driver not started")
+                return False
+            return self._send_movejx_one(posx, vel, acc, ref, sol, sync, real=True)
+        # preview: sim → confirm → real
+        ok_sim = self._send_movejx_one(posx, vel, acc, ref, sol, sync=0, real=False)
+        if not ok_sim:
+            return False
+        if not self.real_driver_started:
+            self.get_logger().warn("preview mode: sim done but real driver not started; skipping real")
+            return ok_sim
+        proceed = True
+        if confirm_real_callback:
+            proceed = bool(confirm_real_callback(posx, kind="movejx"))
+        if not proceed:
+            return ok_sim
+        return self._send_movejx_one(posx, vel, acc, ref, sol, sync, real=True)
+
+    def _send_movel_one(self, posx, vel_lin, vel_ang, acc_lin, acc_ang, ref, sync, real):
+        cli = self._client_for("movel", real=real)
+        if not cli or not cli.wait_for_service(timeout_sec=2.0):
             return False
         req = MoveLine.Request()
         req.pos = [float(p) for p in posx]
@@ -315,22 +339,63 @@ class RobotInterface(Node):
         req.time = 0.0; req.radius = 0.0
         req.ref = int(ref); req.mode = 0
         req.blend_type = 0; req.sync_type = int(sync)
-        r = self._wait(self.cli_movel.call_async(req), 120.0)
+        r = self._wait(cli.call_async(req), 120.0)
         return bool(r and r.success)
 
+    def movel(self, posx, vel_lin=100.0, vel_ang=30.0, acc_lin=200.0, acc_ang=60.0,
+              ref=0, sync=0, confirm_real_callback=None) -> bool:
+        ok, why = self._check_workspace(posx, ref)
+        if not ok:
+            self.get_logger().warn(f"movel blocked: {why}")
+            return False
+        mode = self.target_mode
+        if mode == "sim":
+            return self._send_movel_one(posx, vel_lin, vel_ang, acc_lin, acc_ang, ref, sync, real=False)
+        if mode == "real":
+            if not self.real_driver_started:
+                self.get_logger().warn("real mode requested but real driver not started")
+                return False
+            return self._send_movel_one(posx, vel_lin, vel_ang, acc_lin, acc_ang, ref, sync, real=True)
+        # preview: sim → confirm → real
+        ok_sim = self._send_movel_one(posx, vel_lin, vel_ang, acc_lin, acc_ang, ref, sync=0, real=False)
+        if not ok_sim:
+            return False
+        if not self.real_driver_started:
+            self.get_logger().warn("preview mode: sim done but real driver not started; skipping real")
+            return ok_sim
+        proceed = True
+        if confirm_real_callback:
+            proceed = bool(confirm_real_callback(posx, kind="movel"))
+        if not proceed:
+            return ok_sim
+        return self._send_movel_one(posx, vel_lin, vel_ang, acc_lin, acc_ang, ref, sync, real=True)
+
+    def _query_client(self, kind):
+        """Pick sim or real query client based on target_mode.
+        Real for 'real' / 'preview' modes (when real driver is up), sim otherwise."""
+        use_real = (self.target_mode in ("real", "preview")
+                    and self.real_driver_started)
+        if use_real:
+            cli = self._real_clients.get(kind)
+            if cli is not None:
+                return cli
+        return {"posj": self.cli_posj, "posx": self.cli_posx}[kind]
+
     def get_current_posj(self):
-        if not self.cli_posj.wait_for_service(timeout_sec=1.0):
+        cli = self._query_client("posj")
+        if not cli.wait_for_service(timeout_sec=1.0):
             return None
-        r = self._wait(self.cli_posj.call_async(GetCurrentPosj.Request()), 2.0)
+        r = self._wait(cli.call_async(GetCurrentPosj.Request()), 2.0)
         if r and r.success:
             return list(r.pos)
         return None
 
     def get_current_posx(self, ref=0):
-        if not self.cli_posx.wait_for_service(timeout_sec=1.0):
+        cli = self._query_client("posx")
+        if not cli.wait_for_service(timeout_sec=1.0):
             return None
         req = GetCurrentPosx.Request(); req.ref = int(ref)
-        r = self._wait(self.cli_posx.call_async(req), 2.0)
+        r = self._wait(cli.call_async(req), 2.0)
         if r and r.success and r.task_pos_info:
             data = list(r.task_pos_info[0].data)
             if len(data) >= 6:
@@ -427,7 +492,23 @@ class RobotInterface(Node):
             "movejx": self.create_client(MoveJointx, f"{real_svc}/motion/move_jointx"),
             "movel": self.create_client(MoveLine, f"{real_svc}/motion/move_line"),
             "stop": self.create_client(MoveStop, f"{real_svc}/motion/move_stop"),
+            "posj": self.create_client(GetCurrentPosj, f"{real_svc}/aux_control/get_current_posj"),
+            "posx": self.create_client(GetCurrentPosx, f"{real_svc}/aux_control/get_current_posx"),
         }
+
+    def _poll_real_driver(self):
+        """Detect a real driver started outside this process and attach to it."""
+        if self.real_driver_started:
+            self._real_detect_timer.cancel()
+            return
+        target = f"/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint"
+        for name, _ in self.get_service_names_and_types():
+            if name == target:
+                self.real_driver_started = True
+                self._lazy_create_real_clients()
+                self.get_logger().info(f"Detected external real driver at {target}")
+                self._real_detect_timer.cancel()
+                return
 
     def _client_for(self, kind: str, real: bool):
         """Pick sim or real client for the given motion kind."""
@@ -511,6 +592,13 @@ class ModeScreen(tk.Frame):
                           bg=T.PANEL_HI, fg=T.TITLE, height=1, width=10)
         back.pack(side="left")
 
+        # Robot Home Pose button — every mode gets the same shortcut so the
+        # operator can always recover to a safe known pose (HOME_POSE_DEG)
+        # via movej. Respects target_mode (sim / real / preview).
+        home_pose = big_button(hdr, "🏠 Home Pose", self._go_home_pose,
+                               bg=T.WARN, height=1, width=12)
+        home_pose.pack(side="left", padx=(8, 0))
+
         # accent bar + title
         bar = tk.Frame(hdr, bg=self.accent, width=4)
         bar.pack(side="left", fill="y", padx=(20, 8))
@@ -523,6 +611,17 @@ class ModeScreen(tk.Frame):
                                    cursor="hand2")
         self.status_lbl.pack(side="right")
         self.status_lbl.bind("<Button-1>", lambda e: self._on_status_click())
+
+    def _go_home_pose(self):
+        """Send robot to HOME_POSE_DEG via movej. Respects target_mode —
+        in 'preview' the confirm dialog is shown before touching the real arm."""
+        self.set_status("Home Pose → movej " + str(HOME_POSE_DEG) + "°", T.LABEL)
+        self.run_async(
+            lambda: self.robot.movej(
+                HOME_POSE_DEG, vel=30.0, acc=30.0,
+                confirm_real_callback=self.app.confirm_real_modal),
+            on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
+                                               T.OK if ok else T.BAD))
 
     def set_status(self, msg, color=T.DIM):
         self.status_lbl.config(text=msg, fg=color)
@@ -770,7 +869,8 @@ class TaskSpaceScreen(ModeScreen):
         self.set_status(f"movel → {target}", T.LABEL)
         self.run_async(
             lambda: self.robot.movel(target, vel_lin=self.vlin.get(),
-                                     vel_ang=self.vang.get(), ref=ref),
+                                     vel_ang=self.vang.get(), ref=ref,
+                                     confirm_real_callback=self.app.confirm_real_modal),
             on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                T.OK if ok else T.BAD))
 
@@ -780,7 +880,8 @@ class TaskSpaceScreen(ModeScreen):
         self.set_status(f"movejx → {target}", T.LABEL)
         self.run_async(
             lambda: self.robot.movejx(target, vel=self.vang.get(),
-                                      acc=60.0, ref=ref),
+                                      acc=60.0, ref=ref,
+                                      confirm_real_callback=self.app.confirm_real_modal),
             on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                T.OK if ok else T.BAD))
 
@@ -899,7 +1000,8 @@ class IncrementalJogScreen(ModeScreen):
             self.set_status(f"{TCP_AXES[idx]} {step:+.1f} → movel", T.LABEL)
             self.run_async(
                 lambda: self.robot.movel(target, vel_lin=self.vel_var.get(),
-                                         vel_ang=self.vel_var.get()),
+                                         vel_ang=self.vel_var.get(),
+                                         confirm_real_callback=self.app.confirm_real_modal),
                 on_done=lambda ok: self.set_status("OK" if ok else "FAILED",
                                                    T.OK if ok else T.BAD))
 
@@ -1644,21 +1746,106 @@ class App:
             pass
         self.root.destroy()
 
-    def confirm_real_modal(self, target_pos):
+    def confirm_real_modal(self, target_pos, kind="movej"):
         """Called from a worker thread; pops a Tk modal asking the user
         to confirm sending the same command to the real robot. Blocks
-        until the user answers (or 5 min timeout)."""
+        until the user answers (or 5 min timeout). `kind` is the motion
+        type ("movej" | "movejx" | "movel") and controls how the target
+        is labeled in the UI."""
         event = threading.Event()
         answer = [False]
 
         def show():
-            target_str = "  ".join(f"J{i+1}={v:+.1f}°" for i, v in enumerate(target_pos))
-            answer[0] = messagebox.askyesno(
-                "Apply to Real Robot?",
-                f"Sim execution finished.\n\n"
-                f"Target:\n  {target_str}\n\n"
-                f"Robot IP: {self.robot.real_ip}\n\n"
-                f"Send the same movej to the REAL robot now?")
+            dlg = tk.Toplevel(self.root)
+            dlg.title("Apply to Real Robot?")
+            dlg.configure(bg=T.BG)
+            dlg.transient(self.root)
+            dlg.grab_set()
+            dlg.resizable(False, False)
+            w, h = 520, 360
+            self.root.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width()  - w) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+            dlg.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+
+            # Warning header bar
+            header = tk.Frame(dlg, bg=T.BAD, height=72)
+            header.pack(fill="x"); header.pack_propagate(False)
+            tk.Label(header, text="⚠  REAL ROBOT MOTION",
+                     bg=T.BAD, fg="#ffffff",
+                     font=tkfont.Font(family="DejaVu Sans", size=18, weight="bold")
+                    ).pack(pady=18)
+
+            body = tk.Frame(dlg, bg=T.BG)
+            body.pack(fill="both", expand=True, padx=22, pady=14)
+
+            tk.Label(body,
+                     text="Sim execution finished. Send the same command to the REAL robot?",
+                     bg=T.BG, fg=T.LABEL, anchor="w", justify="left",
+                     font=tkfont.Font(family="DejaVu Sans", size=11)
+                    ).pack(fill="x", pady=(0, 12))
+
+            # Info panel: command kind / robot IP / target values
+            panel = tk.Frame(body, bg=T.PANEL)
+            panel.pack(fill="x", pady=(0, 4))
+
+            def _info_row(parent, label, value, value_color=T.VAL, bold=False):
+                row = tk.Frame(parent, bg=T.PANEL)
+                row.pack(fill="x", padx=14, pady=4)
+                tk.Label(row, text=label, bg=T.PANEL, fg=T.DIM, width=10, anchor="w",
+                         font=tkfont.Font(family="DejaVu Sans Mono", size=10)
+                        ).pack(side="left")
+                tk.Label(row, text=value, bg=T.PANEL, fg=value_color, anchor="w",
+                         justify="left", wraplength=380,
+                         font=tkfont.Font(family="DejaVu Sans Mono", size=11,
+                                          weight=("bold" if bold else "normal"))
+                        ).pack(side="left", fill="x", expand=True)
+
+            _info_row(panel, "Command:", kind, value_color=T.WARN, bold=True)
+            _info_row(panel, "Robot IP:", self.robot.real_ip)
+
+            if kind == "movej":
+                labels, unit = JOINT_NAMES, "°"
+                target_str = "   ".join(
+                    f"{labels[i]}={v:+.1f}{unit}" for i, v in enumerate(target_pos))
+            else:  # movejx / movel — TCP pose: mm for X/Y/Z, ° for Rx/Ry/Rz
+                target_str = "   ".join(
+                    f"{TCP_AXES[i]}={target_pos[i]:+.1f}{'mm' if i < 3 else '°'}"
+                    for i in range(min(6, len(target_pos))))
+
+            row = tk.Frame(panel, bg=T.PANEL)
+            row.pack(fill="x", padx=14, pady=(4, 10))
+            tk.Label(row, text="Target:", bg=T.PANEL, fg=T.DIM, width=10, anchor="nw",
+                     font=tkfont.Font(family="DejaVu Sans Mono", size=10)
+                    ).pack(side="left")
+            tk.Label(row, text=target_str, bg=T.PANEL, fg=T.VAL, anchor="w",
+                     justify="left", wraplength=380,
+                     font=tkfont.Font(family="DejaVu Sans Mono", size=10)
+                    ).pack(side="left", fill="x", expand=True)
+
+            # Buttons
+            btns = tk.Frame(body, bg=T.BG)
+            btns.pack(fill="x", side="bottom", pady=(16, 0))
+
+            def on_send():   answer[0] = True;  dlg.destroy()
+            def on_cancel(): answer[0] = False; dlg.destroy()
+
+            tk.Button(btns, text="Cancel  (sim only)", command=on_cancel,
+                      bg=T.PANEL_HI, fg=T.TITLE, activebackground=T.PANEL,
+                      font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold"),
+                      relief="flat", padx=18, pady=12, cursor="hand2"
+                     ).pack(side="left", expand=True, fill="x", padx=(0, 6))
+
+            tk.Button(btns, text="▶  Send to REAL", command=on_send,
+                      bg=T.BAD, fg="#ffffff", activebackground="#a02530",
+                      font=tkfont.Font(family="DejaVu Sans", size=11, weight="bold"),
+                      relief="flat", padx=18, pady=12, cursor="hand2"
+                     ).pack(side="right", expand=True, fill="x", padx=(6, 0))
+
+            dlg.protocol("WM_DELETE_WINDOW", on_cancel)
+            dlg.bind("<Escape>", lambda _e: on_cancel())
+
+            dlg.wait_window()
             event.set()
 
         self.root.after(0, show)
