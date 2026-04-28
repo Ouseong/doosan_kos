@@ -100,6 +100,9 @@ JOINT_LIMITS = [
 JOINT_NAMES = [f"J{i+1}" for i in range(6)]
 TCP_AXES = ["X", "Y", "Z", "Rx", "Ry", "Rz"]
 
+# Real-robot slider-jog default pose (mirrors HOME_POSE in m1013_gripper_bridge.py).
+HOME_POSE_DEG = [0.0, 0.0, -90.0, 0.0, -90.0, 0.0]
+
 
 # ──────── Robot Interface ──────────────────────────────────
 class RobotInterface(Node):
@@ -626,7 +629,7 @@ class JointSliderScreen(ModeScreen):
         big_button(btns, "Sync to current", self._sync, bg=T.PANEL_HI, fg=T.TITLE).pack(side="left", padx=4)
         big_button(btns, "Send (blocking)", lambda: self._send(0), bg=T.JOINT).pack(side="left", padx=4)
         big_button(btns, "Send (async)", lambda: self._send(1), bg=T.PANEL_HI, fg=T.TITLE).pack(side="left", padx=4)
-        big_button(btns, "Home (all 0°)", self._home, bg=T.WARN).pack(side="left", padx=4)
+        big_button(btns, "Home", self._home, bg=T.WARN).pack(side="left", padx=4)
 
         self.after(300, self._refresh)
 
@@ -654,8 +657,8 @@ class JointSliderScreen(ModeScreen):
                                                T.OK if ok else T.BAD))
 
     def _home(self):
-        for sl in self.sliders:
-            sl.set(0.0)
+        for sl, deg in zip(self.sliders, HOME_POSE_DEG):
+            sl.set(deg)
         self._send(0)
 
 

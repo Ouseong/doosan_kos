@@ -344,7 +344,7 @@ class BridgeNode(Node):
 ros_node = BridgeNode()
 
 # ── 초기 포즈 ─────────────────────────────────────────────────────────────
-HOME_POSE = np.array([0.0, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
+HOME_POSE = np.deg2rad([0.0, 0.0, -90.0, 0.0, -90.0, 0.0])
 robot.set_joint_positions(HOME_POSE)
 for _ in range(10):
     world.step(render=True)
