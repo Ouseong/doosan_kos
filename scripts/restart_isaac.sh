@@ -24,12 +24,17 @@ fi
 echo "  ✓ 종료됨"
 
 echo ""
-echo "=== Bridge GPU 2 재시작 ==="
+# ISAAC_GPU env override: defaults to 0 (works on single-GPU hosts like
+# DGX Spark). On multi-GPU servers, set ISAAC_GPU=2 (or whichever index)
+# before running this script. Picking a non-existent index makes Isaac
+# Sim silently fall back to a CPU-only render that never opens a window.
+ISAAC_GPU="${ISAAC_GPU:-0}"
+echo "=== Bridge GPU $ISAAC_GPU 재시작 ==="
 docker exec doosan_kos bash -c '> /tmp/bridge.log'
-docker exec -d doosan_kos bash -lc '
+docker exec -d -e "ISAAC_GPU=$ISAAC_GPU" doosan_kos bash -lc '
   export PYTHONUNBUFFERED=1
   export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:$LD_LIBRARY_PATH
-  export CUDA_VISIBLE_DEVICES=2
+  export CUDA_VISIBLE_DEVICES=$ISAAC_GPU
   /isaac-sim/python.sh /kos_workspace/isaac/m1013_gripper_bridge.py > /tmp/bridge.log 2>&1
 '
 echo "  → 부팅 폴링 (max 150s)"
