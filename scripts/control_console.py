@@ -1535,6 +1535,16 @@ class GripperPanel(tk.Frame):
                                    font=tkfont.Font(family="DejaVu Sans", size=9))
         self.status_lbl.pack(side="right", padx=12)
 
+        # Hammer demo button — runs scripts/hammer_demo.py as subprocess
+        self.demo_btn = tk.Button(self, text="🔨 Hammer Demo",
+                                  command=self._run_hammer_demo,
+                                  bg=T.WP, fg=T.BG, relief="flat", bd=0,
+                                  cursor="hand2", padx=12, pady=2,
+                                  font=tkfont.Font(family="DejaVu Sans",
+                                                    size=9, weight="bold"))
+        self.demo_btn.pack(side="right", padx=(8, 4), pady=8)
+        self._demo_running = False
+
     def _publish(self, opening_m):
         try:
             self.app.robot.gripper_set(opening_m)
@@ -1549,6 +1559,46 @@ class GripperPanel(tk.Frame):
     def _close(self):
         self.var.set(0)
         self._publish(0.0)
+
+    def _run_hammer_demo(self):
+        if self._demo_running:
+            return
+        self._demo_running = True
+        self.demo_btn.config(state="disabled")
+        self.status_lbl.config(text="hammer demo 실행 중 …", fg=T.WP)
+        threading.Thread(target=self._hammer_demo_worker, daemon=True).start()
+
+    def _hammer_demo_worker(self):
+        cmd = ['/bin/bash', '-c',
+               'source /opt/ros/jazzy/setup.bash && '
+               'source /ros2_ws/install/setup.bash && '
+               'python3 /kos_workspace/scripts/hammer_demo.py']
+        rc = -1
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, text=True)
+            for line in p.stdout:
+                line = line.rstrip()
+                # 진행 상태 캡처: "→ ..." 패턴
+                if '→' in line:
+                    msg = line.split('→', 1)[1].strip()
+                    short = msg[:50]
+                    self.app.root.after(0, lambda m=short:
+                                         self.status_lbl.config(text=m, fg=T.WP))
+            rc = p.wait()
+        except Exception as e:
+            err = str(e)[:50]
+            self.app.root.after(0, lambda:
+                                 self.status_lbl.config(text=f"err: {err}", fg=T.BAD))
+        finally:
+            if rc == 0:
+                self.app.root.after(0, lambda:
+                                     self.status_lbl.config(text="✓ demo 완료", fg=T.OK))
+            else:
+                self.app.root.after(0, lambda:
+                                     self.status_lbl.config(text=f"✗ exit {rc}", fg=T.BAD))
+            self._demo_running = False
+            self.app.root.after(0, lambda: self.demo_btn.config(state="normal"))
 
 
 # ──────── Home (dashboard) ─────────────────────────────────

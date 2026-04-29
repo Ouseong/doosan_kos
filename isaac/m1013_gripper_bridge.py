@@ -40,7 +40,8 @@ HAMMERING_SCENE = True
 # ── Nail / Workbench ─────────────────────────────────────────────────────────
 # NAIL_POS: (x, y, z) meters in world frame.
 # z = top surface of workbench = base of nail.  Edit this one variable to relocate.
-NAIL_POS        = (0.50, 0.00, 0.37)
+# (x, y) 모두 음수 사분면 + bench bottom 이 바닥 (z=0) 에 닿도록 z = BENCH_THICK_M.
+NAIL_POS        = (-0.65, -0.45, 0.05)
 NAIL_DIAMETER_M = 0.003    # 3 mm
 NAIL_HEIGHT_M   = 0.050    # 5 cm
 BENCH_LENGTH_M  = 0.60
@@ -50,6 +51,17 @@ BENCH_THICK_M   = 0.05
 # ── Hammer ───────────────────────────────────────────────────────────────────
 HAMMER_STL_PATH = "/kos_workspace/usd/hammer/hammer.stl"
 HAMMER_SCALE    = 0.001    # STL unit: mm → m
+
+# Two placement modes:
+#   False → hammer rests on floor next to the robot (Step 1 시각 확인 단계)
+#   True  → hammer rigidly follows the gripper (옵션 B / 망치질 단계)
+HAMMER_FOLLOW_GRIPPER = False
+
+# Rest pose (used when HAMMER_FOLLOW_GRIPPER = False).
+# Strike face = local Z = -0.027 m → world Z = 0 (체크 바닥 표면).
+# x = 작업대(0.5) 와 동축, y = -0.45 (작업대 좌측 빈 공간), 손잡이는 +Y(로봇 쪽).
+HAMMER_REST_POS_M = np.array([-0.40, -0.45, 0.077])
+HAMMER_REST_RPY   = np.array([0.0, 0.0, 0.0])
 
 # STL origin (0,0,0) is placed at this offset inside gripper_base_link frame (m).
 # Gripper finger plates sit at Y ≈ -0.128 m from gripper_base_link.
@@ -62,6 +74,14 @@ HAMMER_RPY_IN_GRIPPER  = np.array([0.0, 0.0, 0.0])
 # Strike-point offset from STL origin in local frame (m).
 # Computed from STL Z_min face centroid: circle r=15 mm, centre (0, -87, -27) mm.
 STRIKE_POINT_LOCAL_M   = np.array([0.0, -0.087, -0.027])
+
+# Auto-grasp 임계값 (HAMMER_FOLLOW_GRIPPER=False 모드 전용).
+# 그리퍼 close 명령(opening<ATTACH) 시 plates ↔ 망치 grip 거리<DIST 면 부착.
+# open 명령(opening>DETACH) 시 떼서 마지막 자세에 정지.  collision 없는
+# kinematic 결합이라 풀물리 grasp 가 아닌 시각/trajectory 검증용 단축 경로.
+HAMMER_ATTACH_OPENING_M = 0.040
+HAMMER_DETACH_OPENING_M = 0.050
+HAMMER_ATTACH_DIST_M    = 0.060
 
 # ── Isaac Sim 앱 부팅 ──────────────────────────────────────────────────────
 from isaacsim import SimulationApp
@@ -213,7 +233,11 @@ def _setup_checker_floor(stage,
     mat.CreateSurfaceOutput().ConnectToSource(
         surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
     UsdShade.MaterialBindingAPI(mesh).Bind(mat)
-    print(f"[bridge] 체크 바닥: {size_m}m × {size_m}m, tile={tile_m*100:.0f}cm")
+
+    # Static collision (no RigidBodyAPI = static collider).  Triangle mesh OK.
+    UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+    UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr().Set("none")
+    print(f"[bridge] 체크 바닥: {size_m}m × {size_m}m, tile={tile_m*100:.0f}cm  (+ collision)")
 
 
 # ── Step 2: Nail visual marker + workbench ────────────────────────────────────
@@ -239,6 +263,9 @@ def _setup_nail_workbench(stage):
     b_mat.CreateSurfaceOutput().ConnectToSource(
         b_surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
     UsdShade.MaterialBindingAPI(cube).Bind(b_mat)
+
+    # Static collision (Cube primitive — no approximation needed)
+    UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
 
     # Nail cylinder — no PhysicsCollisionAPI → visual only
     nail_path = "/World/Scene/Nail"
@@ -314,6 +341,20 @@ _setup_checker_floor(stage)
 if HAMMERING_SCENE:
     _setup_nail_workbench(stage)
     _load_stl_as_mesh(stage, HAMMER_STL_PATH, "/World/HammerMesh", HAMMER_SCALE)
+
+    # Hammer physics — RigidBody on root + dynamic mesh collision.
+    # Start kinematic so it sits at rest pose; toggled to dynamic on detach.
+    _h_root = stage.GetPrimAtPath("/World/HammerMesh")
+    _h_rb   = UsdPhysics.RigidBodyAPI.Apply(_h_root)
+    _h_rb.CreateKinematicEnabledAttr().Set(True)
+    _h_mass = UsdPhysics.MassAPI.Apply(_h_root)
+    _h_mass.CreateMassAttr(0.5)                                  # 500 g
+    _h_mass.CreateCenterOfMassAttr(Gf.Vec3f(0.0, -0.014, 0.0))   # bbox 중앙
+    _h_mass.CreateDiagonalInertiaAttr(Gf.Vec3f(0.001457, 0.000168, 0.001381))
+    _h_mesh = stage.GetPrimAtPath("/World/HammerMesh/Mesh")
+    UsdPhysics.CollisionAPI.Apply(_h_mesh)
+    UsdPhysics.MeshCollisionAPI.Apply(_h_mesh).CreateApproximationAttr().Set("convexHull")
+    print(f"[bridge] Hammer physics: RigidBody + 500g + convexHull collision  (kinematic)")
 
 # ── 조명 ──────────────────────────────────────────────────────────────────
 UsdLux.DistantLight.Define(stage, "/World/DistantLight").CreateIntensityAttr(3000)
@@ -404,13 +445,37 @@ mount_quat = rpy_to_quat_wxyz(MOUNT_RPY)
 
 if HAMMERING_SCENE:
     _hammer_orient_local = rpy_to_quat_wxyz(HAMMER_RPY_IN_GRIPPER)
-    _h_xf = UsdGeom.Xformable(stage.GetPrimAtPath("/World/HammerMesh"))
+    _h_prim = stage.GetPrimAtPath("/World/HammerMesh")
+    _h_xf = UsdGeom.Xformable(_h_prim)
     _h_xf.ClearXformOpOrder()
     _hammer_t_op = _h_xf.AddTranslateOp()
     _hammer_r_op = _h_xf.AddOrientOp()
-    print(f"[scene] Hammer xform ops ready  "
-          f"grip_offset={HAMMER_GRIP_IN_GRIPPER}  "
-          f"strike_local={STRIKE_POINT_LOCAL_M} m")
+    _h_kin_attr = UsdPhysics.RigidBodyAPI(_h_prim).GetKinematicEnabledAttr()
+
+    # Auto-grasp 상태 머신 (HAMMER_FOLLOW_GRIPPER=False 일 때만 동작)
+    _hammer_attached         = False
+    _hammer_world_pos        = HAMMER_REST_POS_M.copy()
+    _hammer_world_quat       = rpy_to_quat_wxyz(HAMMER_REST_RPY)
+    _hammer_grip_offset_pos  = np.zeros(3)
+    _hammer_grip_offset_quat = np.array([1.0, 0.0, 0.0, 0.0])
+    _attach_diag_n           = 0
+
+    if not HAMMER_FOLLOW_GRIPPER:
+        _hammer_t_op.Set(Gf.Vec3d(*[float(v) for v in _hammer_world_pos]))
+        _hammer_r_op.Set(Gf.Quatf(float(_hammer_world_quat[0]),
+                                   float(_hammer_world_quat[1]),
+                                   float(_hammer_world_quat[2]),
+                                   float(_hammer_world_quat[3])))
+        _strike_world = HAMMER_REST_POS_M + STRIKE_POINT_LOCAL_M  # identity rotation
+        print(f"[scene] Hammer rest pose  pos={HAMMER_REST_POS_M.tolist()} m  "
+              f"strike_world={_strike_world.tolist()} m")
+        print(f"[scene] Auto-grasp 활성: opening<{HAMMER_ATTACH_OPENING_M*1000:.0f}mm "
+              f"+ dist<{HAMMER_ATTACH_DIST_M*1000:.0f}mm 시 부착, "
+              f"open>{HAMMER_DETACH_OPENING_M*1000:.0f}mm 시 분리")
+    else:
+        print(f"[scene] Hammer force-follow-gripper mode  "
+              f"grip_offset={HAMMER_GRIP_IN_GRIPPER}  "
+              f"strike_local={STRIKE_POINT_LOCAL_M} m")
 
 def get_tool0_world_pose():
     """USD stage에서 tool0 world transform 읽기"""
@@ -428,6 +493,21 @@ def get_tool0_world_pose():
     quat = np.array([rot.GetReal(), iv[0], iv[1], iv[2]])  # wxyz
     return pos, quat
 
+
+def get_prim_world_pose(prim_path):
+    """USD stage 의 prim world pose (kinematic / dynamic 무관 live read)"""
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim.IsValid():
+        return np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0])
+    xf = UsdGeom.Xformable(prim)
+    mat = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    t = mat.ExtractTranslation()
+    pos = np.array([t[0], t[1], t[2]])
+    rot = mat.ExtractRotationQuat()
+    iv = rot.GetImaginary()
+    quat = np.array([rot.GetReal(), iv[0], iv[1], iv[2]])
+    return pos, quat
+
 # ── 그리퍼 관절 설정 ───────────────────────────────────────────────────────
 MAX_OPENING = 0.067   # m
 MAX_TRAVEL  = 0.0335  # m
@@ -441,7 +521,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float32   # GripperCommand가 Isaac Sim Python 3.11 번들에 없어 대체
+from std_msgs.msg import Float32, Empty   # GripperCommand가 Isaac Sim Python 3.11 번들에 없어 대체
 
 rclpy.init()
 
@@ -452,6 +532,8 @@ class BridgeNode(Node):
 
         self.robot_joints   = None
         self.target_opening = MAX_OPENING   # 시작 시 완전 열림
+        self._last_grip_pos = None           # IK 디버그용 (loop 에서 매 frame 갱신)
+        self.hammer_reset_pending = False    # /hammer_reset 트리거
 
         # Dual-namespace mirror: subscribe both sim (/dsr01) and real (/dsr01_real)
         # joint_states. The viewport follows whichever side moved most recently
@@ -471,6 +553,8 @@ class BridgeNode(Node):
             lambda m: self._joint_cb(m, "real"), qos)
         self.create_subscription(
             Float32, "/gripper_command", self._gripper_cb, qos)
+        self.create_subscription(
+            Empty, "/hammer_reset", self._hammer_reset_cb, qos)
         self.state_pub = self.create_publisher(
             JointState, "/gripper_state", qos)
 
@@ -504,9 +588,19 @@ class BridgeNode(Node):
 
     def _gripper_cb(self, msg):
         # std_msgs/Float32: data = 열림 너비 (m, 0.0~0.067)
+        prev = self.target_opening
         self.target_opening = msg.data
-        self.get_logger().info(
-            f"그리퍼 명령: {msg.data*1000:.1f}mm")
+        # 변화 큰 명령(>5mm)일 때만 로그 — IK 디버그용
+        if abs(msg.data - prev) > 0.005 and self._last_grip_pos is not None:
+            self.get_logger().info(
+                f"그리퍼 명령: {msg.data*1000:.1f}mm  "
+                f"@ gripper_pos={self._last_grip_pos.round(3).tolist()}")
+        else:
+            self.get_logger().info(f"그리퍼 명령: {msg.data*1000:.1f}mm")
+
+    def _hammer_reset_cb(self, _msg):
+        self.hammer_reset_pending = True
+        self.get_logger().info("[hammer] reset 요청 수신 — 다음 frame 에서 rest pose 로 복구")
 
     def publish_gripper_state(self, dof_pos):
         js = JointState()
@@ -531,6 +625,12 @@ print(f"[bridge] M1013 초기 포즈 적용")
 world.play()
 print("[bridge] 시뮬레이션 루프 시작. Ctrl-C로 종료.")
 
+# 60 Hz wall-clock throttle: physics_dt = 1/60 이라 step 호출 빈도와 sim 시간이 1:1 이 되어야
+# 중력이 9.81 m/s² 그대로 보임.  throttle 없으면 GPU 가 빠른 만큼 sim 이 가속됨.
+import time as _time
+LOOP_DT = 1.0 / 60.0
+_next_step_t = _time.time()
+
 try:
     while app.is_running():
         rclpy.spin_once(ros_node, timeout_sec=0)
@@ -548,15 +648,99 @@ try:
         gripper_pos  = tool0_pos + offset_world
 
         gripper.set_world_pose(position=gripper_pos, orientation=gripper_quat)
+        ros_node._last_grip_pos = gripper_pos
 
-        # ── 망치: 그리퍼 kinematic follow (Step 3) ──────────────────────
+        # ── 망치 reset 처리: 외부에서 /hammer_reset 받으면 rest pose 복구 ──
+        if HAMMERING_SCENE and ros_node.hammer_reset_pending:
+            ros_node.hammer_reset_pending = False
+            _hammer_attached   = False
+            _hammer_world_pos  = HAMMER_REST_POS_M.copy()
+            _hammer_world_quat = rpy_to_quat_wxyz(HAMMER_REST_RPY)
+            if not _h_kin_attr.Get():
+                _h_kin_attr.Set(True)
+            _hammer_t_op.Set(Gf.Vec3d(float(_hammer_world_pos[0]),
+                                       float(_hammer_world_pos[1]),
+                                       float(_hammer_world_pos[2])))
+            _hammer_r_op.Set(Gf.Quatf(float(_hammer_world_quat[0]),
+                                       float(_hammer_world_quat[1]),
+                                       float(_hammer_world_quat[2]),
+                                       float(_hammer_world_quat[3])))
+            ros_node.get_logger().info(
+                f"[hammer] reset → {HAMMER_REST_POS_M.tolist()}  (kinematic)")
+
+        # ── 망치: 강제 follow (옵션 B) 또는 auto-grasp 상태머신 ─────────
         if HAMMERING_SCENE:
-            h_pos  = gripper_pos + rotate_vec(gripper_quat, HAMMER_GRIP_IN_GRIPPER)
-            h_quat = quat_multiply(gripper_quat, _hammer_orient_local)
-            _hammer_t_op.Set(Gf.Vec3d(float(h_pos[0]), float(h_pos[1]), float(h_pos[2])))
-            _hammer_r_op.Set(Gf.Quatf(
-                float(h_quat[0]), float(h_quat[1]),
-                float(h_quat[2]), float(h_quat[3])))
+            if HAMMER_FOLLOW_GRIPPER:
+                _hammer_world_pos  = gripper_pos + rotate_vec(gripper_quat, HAMMER_GRIP_IN_GRIPPER)
+                _hammer_world_quat = quat_multiply(gripper_quat, _hammer_orient_local)
+                _hammer_t_op.Set(Gf.Vec3d(float(_hammer_world_pos[0]),
+                                           float(_hammer_world_pos[1]),
+                                           float(_hammer_world_pos[2])))
+                _hammer_r_op.Set(Gf.Quatf(float(_hammer_world_quat[0]),
+                                           float(_hammer_world_quat[1]),
+                                           float(_hammer_world_quat[2]),
+                                           float(_hammer_world_quat[3])))
+            else:
+                _t_open = ros_node.target_opening
+                if not _hammer_attached:
+                    # Live-read actual pose (dynamic 단계에서 PhysX 가 움직였을 수 있음)
+                    _hammer_world_pos, _hammer_world_quat = get_prim_world_pose("/World/HammerMesh")
+
+                    _grasp_world = gripper_pos + rotate_vec(
+                        gripper_quat, np.array([0.0, -0.128, 0.0]))
+                    _dist = float(np.linalg.norm(_grasp_world - _hammer_world_pos))
+                    if _t_open < HAMMER_ATTACH_OPENING_M and _dist < HAMMER_ATTACH_DIST_M:
+                        # 현재 actual world pose 기준으로 offset 계산
+                        _qw, _qx, _qy, _qz = gripper_quat
+                        _inv_q = np.array([_qw, -_qx, -_qy, -_qz])
+                        _hammer_grip_offset_pos  = rotate_vec(
+                            _inv_q, _hammer_world_pos - gripper_pos)
+                        _hammer_grip_offset_quat = quat_multiply(_inv_q, _hammer_world_quat)
+                        _hammer_attached = True
+                        # dynamic → kinematic 전환. xform op 도 actual pose 로 동기화하여
+                        # 첫 프레임 jump 회피.
+                        if not _h_kin_attr.Get():
+                            _h_kin_attr.Set(True)
+                        _hammer_t_op.Set(Gf.Vec3d(float(_hammer_world_pos[0]),
+                                                   float(_hammer_world_pos[1]),
+                                                   float(_hammer_world_pos[2])))
+                        _hammer_r_op.Set(Gf.Quatf(float(_hammer_world_quat[0]),
+                                                   float(_hammer_world_quat[1]),
+                                                   float(_hammer_world_quat[2]),
+                                                   float(_hammer_world_quat[3])))
+                        _attach_diag_n = 5
+                        _joint_log = (np.rad2deg(ros_node.robot_joints).round(1).tolist()
+                                      if ros_node.robot_joints is not None else None)
+                        ros_node.get_logger().info(
+                            f"[hammer] attach  hammer_actual={_hammer_world_pos.round(4).tolist()}  "
+                            f"gripper_pos={gripper_pos.round(4).tolist()}  "
+                            f"offset={_hammer_grip_offset_pos.round(4).tolist()}  "
+                            f"joints_deg={_joint_log}  dist={_dist*1000:.0f}mm")
+                else:
+                    _hammer_world_pos  = gripper_pos + rotate_vec(
+                        gripper_quat, _hammer_grip_offset_pos)
+                    _hammer_world_quat = quat_multiply(gripper_quat, _hammer_grip_offset_quat)
+                    _hammer_t_op.Set(Gf.Vec3d(float(_hammer_world_pos[0]),
+                                               float(_hammer_world_pos[1]),
+                                               float(_hammer_world_pos[2])))
+                    _hammer_r_op.Set(Gf.Quatf(float(_hammer_world_quat[0]),
+                                               float(_hammer_world_quat[1]),
+                                               float(_hammer_world_quat[2]),
+                                               float(_hammer_world_quat[3])))
+                    if _attach_diag_n > 0:
+                        _actual_pos, _ = get_prim_world_pose("/World/HammerMesh")
+                        _drift = np.linalg.norm(_actual_pos - _hammer_world_pos)
+                        ros_node.get_logger().info(
+                            f"[hammer-diag] f={_attach_diag_n}  "
+                            f"cmd={_hammer_world_pos.round(4).tolist()}  "
+                            f"actual={_actual_pos.round(4).tolist()}  "
+                            f"drift={_drift*1000:.1f}mm")
+                        _attach_diag_n -= 1
+                    if _t_open > HAMMER_DETACH_OPENING_M:
+                        _hammer_attached = False
+                        _h_kin_attr.Set(False)   # 중력 ON, 자유 낙하
+                        ros_node.get_logger().info(
+                            f"[hammer] detached → dynamic  target={_t_open*1000:.0f}mm")
 
         # ── 그리퍼 관절 제어 ───────────────────────────────────────────
         joint_target = opening_to_joint(ros_node.target_opening)
@@ -567,6 +751,14 @@ try:
         ros_node.publish_gripper_state(cur_pos)
 
         world.step(render=True)
+
+        # Wall-clock throttle to physics rate.  Drop-back if 0.5s 이상 밀리면 reset.
+        _next_step_t += LOOP_DT
+        _sleep = _next_step_t - _time.time()
+        if _sleep > 0.0:
+            _time.sleep(_sleep)
+        elif _sleep < -0.5:
+            _next_step_t = _time.time()
 
 except KeyboardInterrupt:
     print("[bridge] 종료 중...")

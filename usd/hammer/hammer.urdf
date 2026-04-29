@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<!--
+  Hammer (rubber mallet) URDF
+  - 좌표계: 그리퍼 grip origin(STL의 0,0,0) = hammer_link 원점
+  - Strike 면 중심: (0, -0.087, -0.027) m, 반경 0.015 m  (Y가 손잡이 축)
+  - 단위: meters (STL 은 mm 라 mesh scale = 0.001)
+  - 질량 0.5 kg (rubber mallet 일반치, 실측 시 inertia 와 함께 교체)
+  - inertia 는 bounding box (0.0335 × 0.179 × 0.054 m) 균질 근사
+-->
+<robot name="hammer">
+  <link name="hammer_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://hammer/hammer.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="rubber_dark">
+        <color rgba="0.25 0.18 0.10 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://hammer/hammer.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+
+    <inertial>
+      <!-- COM: bounding box 중앙 (0, -0.014, 0) -->
+      <origin xyz="0.0 -0.014 0.0" rpy="0 0 0"/>
+      <mass value="0.5"/>
+      <inertia
+        ixx="0.001457"  ixy="0.0"      ixz="0.0"
+        iyy="0.000168"  iyz="0.0"
+        izz="0.001381"/>
+    </inertial>
+  </link>
+
+  <!--
+    Strike frame:
+      - 위치: 머리 아래쪽(Z_min) 면 중앙, hammer_link 기준 (0, -0.087, -0.027) m
+      - 회전: 자식의 +Z 가 strike normal(타격 방향, hammer_link -Z) 을 가리키도록 X축 180°
+              → trajectory 코드는 hammer_strike +Z 를 못의 -Z 와 정렬시키면 됨
+  -->
+  <link name="hammer_strike"/>
+  <joint name="hammer_strike_fixed" type="fixed">
+    <parent link="hammer_link"/>
+    <child  link="hammer_strike"/>
+    <origin xyz="0.0 -0.087 -0.027" rpy="3.14159265 0 0"/>
+  </joint>
+</robot>
