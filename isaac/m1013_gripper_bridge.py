@@ -16,6 +16,7 @@ M1013 + 그리퍼 통합 Isaac Sim 브릿지
 
 import argparse
 import os
+import struct
 import sys
 import numpy as np
 
@@ -29,6 +30,38 @@ parser.add_argument("--headless",   action="store_true")
 parser.add_argument("--robot_usd",   default="/tmp/m1013_v2/m1013_full.usda")
 parser.add_argument("--gripper_usd", default="/kos_workspace/usd/parts/gripper_assembly_physics.usd")
 args, unknown = parser.parse_known_args()
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  HAMMERING SCENE CONFIG  (Step 0-2)                                     ║
+# ║  Toggle HAMMERING_SCENE = False to run the plain bridge.                ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+HAMMERING_SCENE = True
+
+# ── Nail / Workbench ─────────────────────────────────────────────────────────
+# NAIL_POS: (x, y, z) meters in world frame.
+# z = top surface of workbench = base of nail.  Edit this one variable to relocate.
+NAIL_POS        = (0.50, 0.00, 0.37)
+NAIL_DIAMETER_M = 0.003    # 3 mm
+NAIL_HEIGHT_M   = 0.050    # 5 cm
+BENCH_LENGTH_M  = 0.60
+BENCH_WIDTH_M   = 0.40
+BENCH_THICK_M   = 0.05
+
+# ── Hammer ───────────────────────────────────────────────────────────────────
+HAMMER_STL_PATH = "/kos_workspace/usd/hammer/hammer.stl"
+HAMMER_SCALE    = 0.001    # STL unit: mm → m
+
+# STL origin (0,0,0) is placed at this offset inside gripper_base_link frame (m).
+# Gripper finger plates sit at Y ≈ -0.128 m from gripper_base_link.
+HAMMER_GRIP_IN_GRIPPER = np.array([0.0, -0.128, 0.0])
+
+# Hammer orientation relative to gripper_base (RPY rad).
+# Tune HAMMER_RPY_IN_GRIPPER after first launch to align visually.
+HAMMER_RPY_IN_GRIPPER  = np.array([0.0, 0.0, 0.0])
+
+# Strike-point offset from STL origin in local frame (m).
+# Computed from STL Z_min face centroid: circle r=15 mm, centre (0, -87, -27) mm.
+STRIKE_POINT_LOCAL_M   = np.array([0.0, -0.087, -0.027])
 
 # ── Isaac Sim 앱 부팅 ──────────────────────────────────────────────────────
 from isaacsim import SimulationApp
@@ -182,7 +215,105 @@ def _setup_checker_floor(stage,
     UsdShade.MaterialBindingAPI(mesh).Bind(mat)
     print(f"[bridge] 체크 바닥: {size_m}m × {size_m}m, tile={tile_m*100:.0f}cm")
 
+
+# ── Step 2: Nail visual marker + workbench ────────────────────────────────────
+def _setup_nail_workbench(stage):
+    """Workbench slab + nail cylinder.  Nail has no collision — visual only."""
+    nx, ny, nz = NAIL_POS
+
+    # Workbench
+    bench_path = "/World/Scene/Workbench"
+    stage.DefinePrim("/World/Scene", "Xform")
+    cube = UsdGeom.Cube.Define(stage, bench_path)
+    cube.CreateSizeAttr(1.0)
+    bxf = UsdGeom.Xformable(cube)
+    bxf.ClearXformOpOrder()
+    bxf.AddTranslateOp().Set(Gf.Vec3d(nx, ny, nz - BENCH_THICK_M / 2))
+    bxf.AddScaleOp().Set(Gf.Vec3f(BENCH_LENGTH_M, BENCH_WIDTH_M, BENCH_THICK_M))
+    b_mat = UsdShade.Material.Define(stage, bench_path + "/Mat")
+    b_surf = UsdShade.Shader.Define(stage, bench_path + "/Mat/Surf")
+    b_surf.CreateIdAttr("UsdPreviewSurface")
+    b_surf.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.55, 0.35, 0.15))
+    b_surf.CreateInput("roughness",    Sdf.ValueTypeNames.Float).Set(0.80)
+    b_surf.CreateInput("metallic",     Sdf.ValueTypeNames.Float).Set(0.00)
+    b_mat.CreateSurfaceOutput().ConnectToSource(
+        b_surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
+    UsdShade.MaterialBindingAPI(cube).Bind(b_mat)
+
+    # Nail cylinder — no PhysicsCollisionAPI → visual only
+    nail_path = "/World/Scene/Nail"
+    cyl = UsdGeom.Cylinder.Define(stage, nail_path)
+    cyl.CreateRadiusAttr(NAIL_DIAMETER_M / 2)
+    cyl.CreateHeightAttr(NAIL_HEIGHT_M)
+    nxf = UsdGeom.Xformable(cyl)
+    nxf.ClearXformOpOrder()
+    # USD Cylinder origin = geometric centre → shift up by half height
+    nxf.AddTranslateOp().Set(Gf.Vec3d(nx, ny, nz + NAIL_HEIGHT_M / 2))
+    n_mat = UsdShade.Material.Define(stage, nail_path + "/Mat")
+    n_surf = UsdShade.Shader.Define(stage, nail_path + "/Mat/Surf")
+    n_surf.CreateIdAttr("UsdPreviewSurface")
+    n_surf.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.70, 0.72, 0.78))
+    n_surf.CreateInput("metallic",     Sdf.ValueTypeNames.Float).Set(0.85)
+    n_surf.CreateInput("roughness",    Sdf.ValueTypeNames.Float).Set(0.25)
+    n_mat.CreateSurfaceOutput().ConnectToSource(
+        n_surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
+    UsdShade.MaterialBindingAPI(cyl).Bind(n_mat)
+
+    print(f"[scene] Workbench : centre=({nx:.3f}, {ny:.3f}, {nz - BENCH_THICK_M/2:.3f}) m  "
+          f"size=({BENCH_LENGTH_M:.2f}×{BENCH_WIDTH_M:.2f}×{BENCH_THICK_M:.2f}) m")
+    print(f"[scene] Nail      : base=({nx:.3f}, {ny:.3f}, {nz:.3f}) m  "
+          f"d={NAIL_DIAMETER_M*1000:.0f}mm  h={NAIL_HEIGHT_M*100:.0f}cm  (no collision)")
+
+
+# ── Step 3: Hammer STL mesh loader ────────────────────────────────────────────
+def _load_stl_as_mesh(stage, stl_path, prim_path, scale=0.001):
+    """Parse binary STL → USD Mesh prim.  scale converts mm to m."""
+    points, counts, indices = [], [], []
+    idx = 0
+    with open(stl_path, "rb") as f:
+        f.read(80)
+        n_tri = struct.unpack("<I", f.read(4))[0]
+        for _ in range(n_tri):
+            f.read(12)               # normal — skip
+            for _ in range(3):
+                x, y, z = struct.unpack("<fff", f.read(12))
+                points.append(Gf.Vec3f(x, y, z))
+            f.read(2)                # attr — skip
+            counts.append(3)
+            indices.extend([idx, idx + 1, idx + 2])
+            idx += 3
+
+    stage.DefinePrim(prim_path, "Xform")
+    mesh = UsdGeom.Mesh.Define(stage, prim_path + "/Mesh")
+    mesh.CreatePointsAttr(points)
+    mesh.CreateFaceVertexCountsAttr(counts)
+    mesh.CreateFaceVertexIndicesAttr(indices)
+    mesh.CreateSubdivisionSchemeAttr("none")
+
+    # Scale embedded in mesh child so the parent Xform carries only pose
+    mxf = UsdGeom.Xformable(mesh)
+    mxf.ClearXformOpOrder()
+    mxf.AddScaleOp().Set(Gf.Vec3f(scale, scale, scale))
+
+    # Material: dark rubber
+    mat = UsdShade.Material.Define(stage, prim_path + "/Mat")
+    surf = UsdShade.Shader.Define(stage, prim_path + "/Mat/Surf")
+    surf.CreateIdAttr("UsdPreviewSurface")
+    surf.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.12, 0.12, 0.12))
+    surf.CreateInput("roughness",    Sdf.ValueTypeNames.Float).Set(0.75)
+    surf.CreateInput("metallic",     Sdf.ValueTypeNames.Float).Set(0.00)
+    mat.CreateSurfaceOutput().ConnectToSource(
+        surf.CreateOutput("surface", Sdf.ValueTypeNames.Token))
+    UsdShade.MaterialBindingAPI(mesh).Bind(mat)
+
+    print(f"[scene] Hammer STL: {n_tri} triangles loaded → {prim_path}  (scale={scale})")
+
+
 _setup_checker_floor(stage)
+
+if HAMMERING_SCENE:
+    _setup_nail_workbench(stage)
+    _load_stl_as_mesh(stage, HAMMER_STL_PATH, "/World/HammerMesh", HAMMER_SCALE)
 
 # ── 조명 ──────────────────────────────────────────────────────────────────
 UsdLux.DistantLight.Define(stage, "/World/DistantLight").CreateIntensityAttr(3000)
@@ -270,6 +401,16 @@ def rotate_vec(q_wxyz, v):
     return res[1:]
 
 mount_quat = rpy_to_quat_wxyz(MOUNT_RPY)
+
+if HAMMERING_SCENE:
+    _hammer_orient_local = rpy_to_quat_wxyz(HAMMER_RPY_IN_GRIPPER)
+    _h_xf = UsdGeom.Xformable(stage.GetPrimAtPath("/World/HammerMesh"))
+    _h_xf.ClearXformOpOrder()
+    _hammer_t_op = _h_xf.AddTranslateOp()
+    _hammer_r_op = _h_xf.AddOrientOp()
+    print(f"[scene] Hammer xform ops ready  "
+          f"grip_offset={HAMMER_GRIP_IN_GRIPPER}  "
+          f"strike_local={STRIKE_POINT_LOCAL_M} m")
 
 def get_tool0_world_pose():
     """USD stage에서 tool0 world transform 읽기"""
@@ -407,6 +548,15 @@ try:
         gripper_pos  = tool0_pos + offset_world
 
         gripper.set_world_pose(position=gripper_pos, orientation=gripper_quat)
+
+        # ── 망치: 그리퍼 kinematic follow (Step 3) ──────────────────────
+        if HAMMERING_SCENE:
+            h_pos  = gripper_pos + rotate_vec(gripper_quat, HAMMER_GRIP_IN_GRIPPER)
+            h_quat = quat_multiply(gripper_quat, _hammer_orient_local)
+            _hammer_t_op.Set(Gf.Vec3d(float(h_pos[0]), float(h_pos[1]), float(h_pos[2])))
+            _hammer_r_op.Set(Gf.Quatf(
+                float(h_quat[0]), float(h_quat[1]),
+                float(h_quat[2]), float(h_quat[3])))
 
         # ── 그리퍼 관절 제어 ───────────────────────────────────────────
         joint_target = opening_to_joint(ros_node.target_opening)
