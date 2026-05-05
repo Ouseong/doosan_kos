@@ -20,6 +20,9 @@ log/
 *.usdc
 *.usdz
 
+# Robot 모델 mesh (Doosan 배포본, 268MB — server에서 별도 설치)
+usd/m1013/meshes/
+
 # 그리퍼 물리 USD는 예외 (self-contained, 서버에서 재생성 불가)
 !usd/parts/gripper_assembly_physics.usd
 
