@@ -45,13 +45,17 @@ N_STRIKES        = 3     # 망치질 반복 횟수 — 각 strike 후 backswing 
 
 
 def main():
+    # Namespace selectable via env var: DSR_NS=dsr01 (sim, default) or dsr01_real (real robot).
+    ns = os.environ.get('DSR_NS', 'dsr01')
+
     rclpy.init()
     node = Node('hammer_demo_ilqr')
+    node.get_logger().info(f"Using namespace /{ns}/")
 
-    cli_movej   = node.create_client(MoveJoint,        '/dsr01/dsr_controller2/motion/move_joint')
-    cli_movejx  = node.create_client(MoveJointx,       '/dsr01/dsr_controller2/motion/move_jointx')
-    cli_movel   = node.create_client(MoveLine,         '/dsr01/dsr_controller2/motion/move_line')
-    cli_spline  = node.create_client(MoveSplineJoint,  '/dsr01/dsr_controller2/motion/move_spline_joint')
+    cli_movej   = node.create_client(MoveJoint,        f'/{ns}/dsr_controller2/motion/move_joint')
+    cli_movejx  = node.create_client(MoveJointx,       f'/{ns}/dsr_controller2/motion/move_jointx')
+    cli_movel   = node.create_client(MoveLine,         f'/{ns}/dsr_controller2/motion/move_line')
+    cli_spline  = node.create_client(MoveSplineJoint,  f'/{ns}/dsr_controller2/motion/move_spline_joint')
 
     node.get_logger().info("Waiting for motion services ...")
     for c, name in ((cli_movej, 'movej'), (cli_movejx, 'movejx'),
@@ -62,7 +66,7 @@ def main():
     joints_state = {'pos_deg': None}
     def _js_cb(msg):
         joints_state['pos_deg'] = [math.degrees(p) for p in msg.position]
-    node.create_subscription(JointState, '/dsr01/joint_states', _js_cb, 10)
+    node.create_subscription(JointState, f'/{ns}/joint_states', _js_cb, 10)
 
     gp_pub    = node.create_publisher(Float32, '/gripper_command', 10)
     reset_pub = node.create_publisher(Empty,   '/hammer_reset',    10)

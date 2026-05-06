@@ -62,7 +62,7 @@ SVC = f"/{ROBOT_ID}/dsr_controller2"
 
 # Real-robot deployment defaults
 REAL_ROBOT_ID = "dsr01_real"
-DEFAULT_REAL_IP = "192.168.137.50"
+DEFAULT_REAL_IP = "192.168.137.100"
 WAYPOINTS_FILE = Path("/tmp/m1013_waypoints.json")
 
 
@@ -516,6 +516,20 @@ class RobotInterface(Node):
         because ros2_control_node registers services even when the host is
         unreachable, which would mis-report a fake 'connected' state."""
         self.real_ip = robot_ip
+
+        # Idempotence guard: if an external driver is already publishing the
+        # /dsr01_real motion services and the robot is reachable, just attach
+        # to it instead of spawning a duplicate launch (multiple drivers race
+        # for the same TCP and starve each other).
+        target = f"/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint"
+        if any(name == target for name, _ in self.get_service_names_and_types()):
+            if self._robot_reachable(robot_ip, 12345):
+                self.real_driver_started = True
+                self._lazy_create_real_clients()
+                self.get_logger().info(
+                    f"start_real_driver: attaching to existing external driver at {target}")
+                return True
+
         log_path = "/tmp/real_driver.log"
         try:
             open(log_path, "w").close()
@@ -1569,7 +1583,11 @@ class GripperPanel(tk.Frame):
         threading.Thread(target=self._hammer_demo_worker, daemon=True).start()
 
     def _hammer_demo_worker(self):
+        # Pick namespace by current target_mode: real → /dsr01_real, otherwise → /dsr01.
+        # "preview" stays on sim namespace; the demo doesn't have its own preview gate.
+        ns = "dsr01_real" if self.app.robot.target_mode == "real" else "dsr01"
         cmd = ['/bin/bash', '-c',
+               f'export DSR_NS={ns} && '
                'source /opt/ros/jazzy/setup.bash && '
                'source /ros2_ws/install/setup.bash && '
                'python3 /kos_workspace/scripts/hammer_demo.py']
