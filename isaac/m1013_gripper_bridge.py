@@ -512,6 +512,14 @@ def get_prim_world_pose(prim_path):
 MAX_OPENING = 0.067   # m
 MAX_TRAVEL  = 0.0335  # m
 
+# Match the real Dynamixel gripper's traversal speed so the sim looks
+# the same as the hardware. Settled on by visual comparison against the
+# real motor (XM430, profile_velocity=100): direct timing of the motor
+# itself gives ~0.046 m/s, but a chunk of that is end-of-motion settle
+# the operator can't see, so 0.070 m/s lines up better with what the
+# eye perceives. If you change the motor's profile_velocity, retune.
+GRIPPER_OPENING_SPEED = 0.075   # m/s, |dopening/dt| cap
+
 def opening_to_joint(opening_m):
     opening_m = float(np.clip(opening_m, 0.0, MAX_OPENING))
     return (MAX_OPENING - opening_m) / 2.0
@@ -532,6 +540,10 @@ class BridgeNode(Node):
 
         self.robot_joints   = None
         self.target_opening = MAX_OPENING   # 시작 시 완전 열림
+        # Actual opening tracked by the sim — ramps towards target_opening
+        # at GRIPPER_OPENING_SPEED so the visual matches the real motor
+        # speed instead of jumping instantly.
+        self.current_opening = MAX_OPENING
         self._last_grip_pos = None           # IK 디버그용 (loop 에서 매 frame 갱신)
         self.hammer_reset_pending = False    # /hammer_reset 트리거
 
@@ -743,7 +755,16 @@ try:
                             f"[hammer] detached → dynamic  target={_t_open*1000:.0f}mm")
 
         # ── 그리퍼 관절 제어 ───────────────────────────────────────────
-        joint_target = opening_to_joint(ros_node.target_opening)
+        # Velocity-limited ramp toward target_opening so the sim animation
+        # matches the real motor's traversal time. Without this the joint
+        # snaps to target instantly, which doesn't look like the hardware.
+        delta = ros_node.target_opening - ros_node.current_opening
+        step = GRIPPER_OPENING_SPEED * LOOP_DT
+        if abs(delta) <= step:
+            ros_node.current_opening = ros_node.target_opening
+        else:
+            ros_node.current_opening += step if delta > 0 else -step
+        joint_target = opening_to_joint(ros_node.current_opening)
         gripper.set_joint_positions(np.full(gripper.num_dof, joint_target))
 
         # ── 그리퍼 상태 발행 ───────────────────────────────────────────

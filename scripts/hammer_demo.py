@@ -203,7 +203,12 @@ def main():
     # Pick & lift
     movejx('APPROACH', WP_APPROACH_HAMMER)
     movejx('AT_HAMMER', WP_AT_HAMMER, vel=20.0, acc=20.0)
-    grip(0.020, "CLOSE + auto-grasp")
+    # Pin-array gripper: plates over-travel into the handle (pins retract
+    # locally). Drive opening all the way to 0 mm so the sim plates visibly
+    # pass through the handle. The real motor naturally stops once the pin
+    # array conforms; the auto-grasp trigger (opening<40mm in the bridge)
+    # still fires well before we reach 0.
+    grip(0.0, "CLOSE + auto-grasp")
     movejx('LIFT', WP_LIFT, vel=20.0, acc=20.0)
 
     # Backswing pose (iLQR q₀ = CSV first row) — 첫 진입은 큰 자세 변화이므로 천천히

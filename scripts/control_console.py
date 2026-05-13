@@ -40,11 +40,22 @@ from dsr_msgs2.srv import (
     Fkin,
     GetCurrentPosj,
     GetCurrentPosx,
+    GetRobotState,
     SetRobotMode,
     SetSafetyMode,
     SetSingularityHandling,
     ChangeCollisionSensitivity,
 )
+
+# DRCF robot_state enum (from doosan-robot2 src). Used to distinguish
+# "ROS service is connected" from "DRCF actually accepts motion commands".
+ROBOT_STATE_NAMES = {
+    0: "INITIALIZING", 1: "STANDBY", 2: "MOVING", 3: "SAFE_OFF",
+    4: "TEACHING", 5: "SAFE_STOP", 6: "EMERGENCY_STOP", 7: "HOMING",
+    8: "RECOVERY", 9: "SAFE_STOP2", 10: "SAFE_OFF2",
+}
+# Codes where the robot will actually execute motion commands.
+ROBOT_STATE_READY = {1, 2, 7}  # STANDBY, MOVING, HOMING
 
 # ──────── Workspace safety limits ──────────────────────────
 TCP_Z_MIN_MM = 50.0          # don't let the gripper finger-tip drop below this (floor + margin)
@@ -171,8 +182,16 @@ class RobotInterface(Node):
         self.target_mode = "sim"
         self.real_ip = DEFAULT_REAL_IP
         self.real_driver_started = False
+        # Re-entry lock for start_real_driver: rapid double-clicks otherwise
+        # race past the idempotence guard and spawn duplicate launches that
+        # fight over DRCF's TCP port, leaving zombie ros2_control_nodes.
+        self._real_starting = False
         # real-robot service clients (lazily created when real driver is started)
         self._real_clients = {}
+        # DRCF robot_state code of the real robot, cached from the last
+        # get_robot_state query. None = not yet queried / driver not up.
+        self._real_robot_state_code = None
+        self._real_robot_state_name = None
         # Auto-detect a real driver launched outside this process
         # (e.g. by an external script). Cancels itself once detected.
         self._real_detect_timer = self.create_timer(2.0, self._poll_real_driver)
@@ -515,20 +534,48 @@ class RobotInterface(Node):
         connects to DRCF — service-name registration alone is not enough,
         because ros2_control_node registers services even when the host is
         unreachable, which would mis-report a fake 'connected' state."""
+        if self._real_starting:
+            self.get_logger().info(
+                "start_real_driver: already in progress, ignoring duplicate request")
+            return False
+        self._real_starting = True
+        try:
+            return self._start_real_driver_impl(robot_ip)
+        finally:
+            self._real_starting = False
+
+    def _start_real_driver_impl(self, robot_ip: str) -> bool:
         self.real_ip = robot_ip
 
-        # Idempotence guard: if an external driver is already publishing the
-        # /dsr01_real motion services and the robot is reachable, just attach
-        # to it instead of spawning a duplicate launch (multiple drivers race
-        # for the same TCP and starve each other).
+        # Always force a fresh boot. Previously this attached to an existing
+        # driver if one was already up, but that left users stuck when DRCF
+        # had drifted to SAFE_OFF after a demo tripped a soft fault — the
+        # driver only auto-retries CONTROL_SERVO_ON during its init phase.
+        # By killing first, we guarantee that "Start Real Driver" always
+        # results in STATE_STANDBY (servo on) or a clear failure.
         target = f"/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint"
         if any(name == target for name, _ in self.get_service_names_and_types()):
-            if self._robot_reachable(robot_ip, 12345):
-                self.real_driver_started = True
-                self._lazy_create_real_clients()
-                self.get_logger().info(
-                    f"start_real_driver: attaching to existing external driver at {target}")
-                return True
+            self.get_logger().info(
+                "start_real_driver: killing existing driver for fresh boot")
+            try:
+                subprocess.run(
+                    ["pkill", "-f", f"name:={REAL_ROBOT_ID}"],
+                    check=False, timeout=3)
+                time.sleep(3)
+                # SIGKILL anything that ignored SIGTERM
+                subprocess.run(
+                    ["pkill", "-9", "-f", f"name:={REAL_ROBOT_ID}"],
+                    check=False, timeout=3)
+                time.sleep(2)
+            except Exception as e:
+                self.get_logger().warn(f"pkill old driver failed: {e}")
+            # Stale ROS clients pointed at the now-dead node; clear so they
+            # get recreated against the new instance.
+            self.real_driver_started = False
+            self._real_clients = {}
+            self._real_robot_state_code = None
+            self._real_robot_state_name = None
+            self._real_proc = None
 
         log_path = "/tmp/real_driver.log"
         try:
@@ -551,7 +598,12 @@ class RobotInterface(Node):
             self.get_logger().error(f"failed to launch real driver: {e}")
             return False
 
-        success_marker = "Connected to DRCF"
+        # We wait for STATE_STANDBY, not just "Connected to DRCF".
+        # "Connected" fires before the driver has tried CONTROL_SERVO_ON;
+        # STATE_STANDBY is the line that prints once servo_on succeeded,
+        # which is the actual readiness signal the user can hear (motor
+        # torque click) and observe via robot_state=1.
+        success_marker = "STATE_STANDBY"
         fail_keywords = (
             "Connection refused", "connect failed", "cannot connect",
             "No route to host", "Network is unreachable", "Traceback",
@@ -632,20 +684,45 @@ class RobotInterface(Node):
             "stop": self.create_client(MoveStop, f"{real_svc}/motion/move_stop"),
             "posj": self.create_client(GetCurrentPosj, f"{real_svc}/aux_control/get_current_posj"),
             "posx": self.create_client(GetCurrentPosx, f"{real_svc}/aux_control/get_current_posx"),
+            "get_state": self.create_client(GetRobotState, f"{real_svc}/system/get_robot_state"),
+            "safety": self.create_client(SetSafetyMode, f"{real_svc}/system/set_safety_mode"),
+            "mode": self.create_client(SetRobotMode, f"{real_svc}/system/set_robot_mode"),
         }
+
+    def query_real_robot_state(self, timeout: float = 1.5):
+        """Query DRCF's current robot_state via the real driver. Used to
+        distinguish "ROS connected" from "robot actually ready to move":
+        a driver that's up but whose DRCF dropped to SAFE_OFF/EMERGENCY_STOP
+        still has a live service, so service-existence alone is misleading.
+
+        Returns (code, name). Both None if the query times out or fails.
+        Side-effect: caches the result on the node for later UI access."""
+        if not self.real_driver_started:
+            self._real_robot_state_code = None
+            self._real_robot_state_name = None
+            return None, None
+        cli = self._real_clients.get("get_state")
+        if cli is None or not cli.wait_for_service(timeout_sec=0.5):
+            return None, None
+        resp = self._wait(cli.call_async(GetRobotState.Request()), timeout)
+        if resp is None or not getattr(resp, "success", False):
+            return None, None
+        code = resp.robot_state
+        name = ROBOT_STATE_NAMES.get(code, f"UNKNOWN({code})")
+        self._real_robot_state_code = code
+        self._real_robot_state_name = name
+        return code, name
 
     def _poll_real_driver(self):
         """Detect a real driver started outside this process and attach to it.
-        Service registration alone is not enough — also require that the robot
-        IP:port is actually reachable so we don't latch onto a driver that's
-        still hung on an unreachable host."""
+        We only check ROS service registration here — DRCF's TCP socket is
+        single-client and refuses a second probe while the driver holds it,
+        so a TCP test from this node falsely reads as 'unreachable'."""
         if self.real_driver_started:
             self._real_detect_timer.cancel()
             return
         target = f"/{REAL_ROBOT_ID}/dsr_controller2/motion/move_joint"
         if not any(name == target for name, _ in self.get_service_names_and_types()):
-            return
-        if not self._robot_reachable(self.real_ip, 12345):
             return
         self.real_driver_started = True
         self._lazy_create_real_clients()
@@ -694,6 +771,31 @@ class RobotInterface(Node):
                 self._wait(self.cli_safety.call_async(req), 2.0)
                 time.sleep(0.2)
         return self.ensure_autonomous()
+
+    def recover_real(self) -> bool:
+        """Same as recover() but targets the real-robot namespace via
+        self._real_clients. Used after start_real_driver if DRCF is sitting
+        in SAFE_OFF (e.g. a prior demo tripped collision/limit and the
+        driver doesn't auto-retry servo_on outside of init)."""
+        if not self.real_driver_started:
+            return False
+        cli_safety = self._real_clients.get("safety")
+        cli_mode = self._real_clients.get("mode")
+        if cli_safety is None or cli_mode is None:
+            return False
+        if cli_safety.wait_for_service(timeout_sec=1.0):
+            for safety_mode, safety_event in [(2, 1), (1, 1)]:
+                req = SetSafetyMode.Request()
+                req.safety_mode = int(safety_mode)
+                req.safety_event = int(safety_event)
+                self._wait(cli_safety.call_async(req), 2.0)
+                time.sleep(0.2)
+        if not cli_mode.wait_for_service(timeout_sec=2.0):
+            return False
+        req = SetRobotMode.Request()
+        req.robot_mode = 1  # AUTONOMOUS
+        r = self._wait(cli_mode.call_async(req), 3.0)
+        return bool(r and r.success)
 
 
 # ──────── GUI helpers ──────────────────────────────────────
@@ -1579,7 +1681,7 @@ class GripperPanel(tk.Frame):
             return
         self._demo_running = True
         self.demo_btn.config(state="disabled")
-        self.status_lbl.config(text="hammer demo 실행 중 …", fg=T.WP)
+        self.status_lbl.config(text="hammer demo running ...", fg=T.WP)
         threading.Thread(target=self._hammer_demo_worker, daemon=True).start()
 
     def _hammer_demo_worker(self):
@@ -1611,7 +1713,7 @@ class GripperPanel(tk.Frame):
         finally:
             if rc == 0:
                 self.app.root.after(0, lambda:
-                                     self.status_lbl.config(text="✓ demo 완료", fg=T.OK))
+                                     self.status_lbl.config(text="demo done", fg=T.OK))
             else:
                 self.app.root.after(0, lambda:
                                      self.status_lbl.config(text=f"✗ exit {rc}", fg=T.BAD))
@@ -1801,13 +1903,45 @@ class HomeScreen(tk.Frame):
                  font=tkfont.Font(family="DejaVu Sans Mono", size=10)
                  ).pack(side="left", padx=4)
 
-        status_color = T.OK if self.app.robot.real_driver_started else T.DIM
-        status_text = ("✓ connected" if self.app.robot.real_driver_started
-                       else "not started")
+        def describe_real_state():
+            """Resolve the true real-robot status for the status_lbl text.
+            Returns (text, color). ROS-service registration alone is shown
+            distinct from DRCF actually being in a motion-ready state."""
+            r = self.app.robot
+            if not r.real_driver_started:
+                return "not started", T.DIM
+            code, name = r.query_real_robot_state(timeout=1.0)
+            if code is None:
+                return "✓ ros2 connected (servo state unknown)", T.WARN
+            if code in ROBOT_STATE_READY:
+                return f"ready - {name}", T.OK
+            if code == 3:    # SAFE_OFF
+                return "connected, SERVO OFF - press 'Start Real Driver' to recover", T.WARN
+            if code == 6:    # EMERGENCY_STOP
+                return "EMERGENCY_STOP - clear alarm on pendant first", T.BAD
+            if code in (5, 9):  # SAFE_STOP variants
+                return f"{name} - clear on pendant", T.WARN
+            return f"connected - robot_state = {name}", T.WARN
+
+        status_text, status_color = describe_real_state()
         status_lbl = tk.Label(dlg, text=f"Real driver: {status_text}",
                               bg=T.BG, fg=status_color,
                               font=tkfont.Font(family="DejaVu Sans", size=9))
         status_lbl.pack(anchor="w", padx=24, pady=(4, 8))
+
+        def refresh_status():
+            # Dialog may have been closed by the user while a background worker
+            # is still updating; the Tk widget then no longer exists.
+            try:
+                if not status_lbl.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            text, color = describe_real_state()
+            try:
+                status_lbl.config(text=f"Real driver: {text}", fg=color)
+            except tk.TclError:
+                pass
 
         def start_real():
             ip = ip_var.get().strip()
@@ -1816,13 +1950,30 @@ class HomeScreen(tk.Frame):
                 return
             status_lbl.config(text=f"Real driver: starting at {ip} ...", fg=T.WARN)
 
+            def safe_set_status(text, color):
+                """Update status_lbl from a worker thread without crashing
+                if the user has already closed the dialog (Tk destroys the
+                widget; subsequent .config() calls raise TclError)."""
+                def apply():
+                    try:
+                        if status_lbl.winfo_exists():
+                            status_lbl.config(text=text, fg=color)
+                    except tk.TclError:
+                        pass
+                self.app.root.after(0, apply)
+
             def worker():
+                # start_real_driver now ALWAYS kills any existing real driver
+                # first and waits for STATE_STANDBY before returning True, so
+                # success here implies servo is on (motor torque is clicking).
                 ok = self.app.robot.start_real_driver(ip)
-                msg = (f"✓ connected to {ip}" if ok
-                       else f"✗ failed to reach {ip}")
-                color = T.OK if ok else T.BAD
-                self.app.root.after(0, lambda: status_lbl.config(
-                    text=f"Real driver: {msg}", fg=color))
+                if not ok:
+                    safe_set_status(
+                        f"Real driver: failed to reach {ip} (no STATE_STANDBY in 30s)",
+                        T.BAD)
+                    return
+                self.app.robot.query_real_robot_state(timeout=1.5)
+                self.app.root.after(0, refresh_status)
             threading.Thread(target=worker, daemon=True).start()
 
         tk.Button(dlg, text="Start Real Driver", command=start_real,
@@ -1857,12 +2008,12 @@ class HomeScreen(tk.Frame):
             body.pack(fill="both", expand=True, padx=24, pady=18)
 
             tk.Label(body,
-                     text="Real driver가 아직 연결돼있지 않아요.\n지금은 SIM 모드만 사용할 수 있어요.",
+                     text="Real driver is not connected yet.\nOnly SIM mode is available right now.",
                      bg=T.BG, fg=T.VAL, justify="center",
                      font=tkfont.Font(family="DejaVu Sans", size=11)
                     ).pack(pady=(2, 10))
             tk.Label(body,
-                     text="REAL / PREVIEW 모드를 쓰려면 먼저\n'Start Real Driver' 버튼으로 연결하세요.",
+                     text="To use REAL / PREVIEW mode, click\n'Start Real Driver' first.",
                      bg=T.BG, fg=T.DIM, justify="center",
                      font=tkfont.Font(family="DejaVu Sans", size=9)
                     ).pack(pady=(0, 14))
@@ -1883,9 +2034,22 @@ class HomeScreen(tk.Frame):
 
         def apply_and_close():
             new_mode = mode_var.get()
-            if new_mode in ("real", "preview") and not self.app.robot.real_driver_started:
-                show_not_connected_modal()
-                return
+            if new_mode in ("real", "preview"):
+                r = self.app.robot
+                if not r.real_driver_started:
+                    show_not_connected_modal()
+                    return
+                # Re-query state right before committing — DRCF can drop to
+                # SAFE_OFF mid-session (e.g. mid-demo collision), and the
+                # cached value would silently let commands go to a robot
+                # that won't move.
+                code, name = r.query_real_robot_state(timeout=1.0)
+                if code is not None and code not in ROBOT_STATE_READY:
+                    refresh_status()
+                    status_lbl.config(
+                        text=f"Real driver: {name} - mode switch blocked, check pendant",
+                        fg=T.BAD)
+                    return
             self.app.robot.target_mode = new_mode
             self.app.robot.real_ip = ip_var.get().strip()
             dlg.destroy()
