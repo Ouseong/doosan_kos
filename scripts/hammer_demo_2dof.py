@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-M1013 hammer demo (iLQR planar swing 버전).
+M1013 hammer demo — 2-DOF (J3 + J5 only) iLQR swing.
 
 흐름:
-  HOME → 망치 위 → 잡기 → 들어올림 → 백스윙 자세 → iLQR swing 으로 못 타격
+  HOME → 망치 위 → 잡기 → 들어올림 → 백스윙 자세 → 2-DOF swing 으로 못 타격
 
-핵심 변경 vs legacy (hammer_demo_legacy.py):
-  - J5 단독 swing 폐기.
-  - swing 은 scripts/ilqr/swing_ocp.py 가 미리 산출한 output/swing_traj.csv (101 step,
-    dt=10ms) 의 J1..J6 궤적을 MoveSplineJoint 한 방으로 발행.
-  - swing plane 락(J1/J4/J6 변동 0°), J2/J3/J5 협응 → 평면 망치질 보장.
+vs hammer_demo.py:
+  - J2 락 (어깨 고정 25.58°), J3+J5 만 swing → mechanically aligned posture
+  - 백스윙에서 망치가 그리퍼 위로 들림 (J5 = -67°) → 진짜 "위에서 내려치기"
+  - CSV: output/swing_traj_servoj_2dof_J2+26.csv  (13열: t, q, q̇)
+  - swing_servoj_2dof.py 산출, T=100 (1초), J3 -40° + J5 -120° backswing offset
 
 좌표 (m1013_gripper_bridge.py 와 일치):
   hammer rest          : (-0.40, -0.45, 0.077)  identity orient
@@ -40,14 +40,13 @@ WP_LIFT            = [-400.0, -462.0, 400.0, 0.0, 180.0, 0.0]
 # Backswing pose: swing_traj.csv 의 첫 row 를 자동으로 사용 (load_swing_csv 후 결정)
 BACKSWING_DEG = None   # 런타임에 CSV 첫 row 로 채움
 
-# ── Swing trajectory CSV (iLQR 산출, dt=10 ms, 101 row) ──────────────────────
-SWING_CSV = "/kos_workspace/output/swing_traj.csv"
+# ── Swing trajectory CSV (2-DOF iLQR, 13열: t, q, q̇, dt=10ms, 101 row) ─────
+SWING_CSV = "/kos_workspace/output/swing_traj_servoj_2dof_J2+26.csv"
 SWING_DURATION_S = 1.5   # emulator J2 한계(120°/s) 안 — 1.0s 면 RC_ERROR 로 reject 됨
 N_STRIKES        = 3     # 망치질 반복 횟수 — 각 strike 후 backswing 으로 돌아감
 
 # 디버그: 실제 robot 에 전송된 MoveSplineJoint payload 를 JSON 으로 dump 한다.
-# 한 demo run 의 모든 strike 가 같은 파일에 append 됨 (jsonl).
-DEBUG_DUMP_PATH = "/tmp/hammer_demo_sent.jsonl"
+DEBUG_DUMP_PATH = "/tmp/hammer_demo_2dof_sent.jsonl"
 
 
 def main():
@@ -123,13 +122,16 @@ def main():
         time.sleep(1.5)
 
     def load_swing_csv(path):
+        """13열 (t, J1..J6, J1_dot..J6_dot) 자동 감지 — 6열 구버전도 지원."""
         rows = []
         with open(path) as f:
             r = csv.reader(f)
-            next(r)   # header
+            header = next(r)
+            is_13col = header[0].strip().startswith('t')
+            sl = slice(1, 7) if is_13col else slice(0, 6)
             for line in r:
                 if not line: continue
-                rows.append([float(x) for x in line[:6]])
+                rows.append([float(x) for x in line[sl]])
         return rows
 
     def move_spline(label, waypoints, total_time_s):

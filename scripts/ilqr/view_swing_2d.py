@@ -54,9 +54,14 @@ JOINT_LABELS = [None,
 
 
 def load_traj(path):
+    """헤더 자동 감지: 6열(J1..J6) 또는 13열(t,J1..J6,J̇1..J̇6) 모두 지원."""
     with open(path) as f:
-        r = csv.reader(f); next(r)
-        rows = [[float(x) for x in row[:6]] for row in r if row]
+        r = csv.reader(f)
+        header = next(r)
+        # 첫 컬럼이 't' 로 시작하면 13열 포맷, 두 번째부터 q
+        is_13col = header[0].strip().startswith('t')
+        sl = slice(1, 7) if is_13col else slice(0, 6)
+        rows = [[float(x) for x in row[sl]] for row in r if row]
     return np.deg2rad(np.array(rows))
 
 
@@ -73,6 +78,8 @@ def make_projector():
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--csv', default=CSV,
+                    help='입력 CSV 경로 (기본: swing_traj.csv; servoj용은 swing_traj_servoj.csv)')
     ap.add_argument('--slider', action='store_true',
                     help='시간 슬라이더 (자동 재생 대신)')
     ap.add_argument('--interval', type=int, default=33,
@@ -81,9 +88,9 @@ def main():
                     help='반복 재생')
     args = ap.parse_args()
 
-    qs = load_traj(CSV)
+    qs = load_traj(args.csv)
     T = len(qs)
-    print(f'[view] loaded {T} frames from {CSV}')
+    print(f'[view] loaded {T} frames from {args.csv}')
 
     model = pin.buildModelFromUrdf(URDF)
     data  = model.createData()

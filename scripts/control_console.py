@@ -1692,7 +1692,7 @@ class GripperPanel(tk.Frame):
                f'export DSR_NS={ns} && '
                'source /opt/ros/jazzy/setup.bash && '
                'source /ros2_ws/install/setup.bash && '
-               'python3 /kos_workspace/scripts/hammer_demo.py']
+               'python3 /kos_workspace/scripts/hammer_demo_2dof.py']
         rc = -1
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
