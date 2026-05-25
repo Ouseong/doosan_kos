@@ -18,6 +18,7 @@ vs hammer_demo.py:
   TCP→그리퍼→망치 chain: link_6 → +(0,0.012,0) → gripper → +(0,-0.128,0) → hammer
 """
 
+import argparse
 import math
 import os
 import time
@@ -37,25 +38,55 @@ WP_APPROACH_HAMMER = [-400.0, -462.0, 305.0, 0.0, 180.0, 0.0]
 WP_AT_HAMMER       = [-400.0, -462.0, 205.0, 0.0, 180.0, 0.0]
 WP_LIFT            = [-400.0, -462.0, 400.0, 0.0, 180.0, 0.0]
 
-# Backswing pose: swing_traj.csv 의 첫 row 를 자동으로 사용 (load_swing_csv 후 결정)
-BACKSWING_DEG = None   # 런타임에 CSV 첫 row 로 채움
+# ── Backswing / Impact 자세 (수동 정의, J1/J4/J6 동일 → swing 평면 자동 락) ───
+# J3, J5 만 변동.  J2 도 동일 (락).
+BACKSWING_DEG = [-148.06, 15.80,  94.84, 0.00,  -5.69, -92.76]  # α=20° + J5 -75°
+IMPACT_DEG    = [-148.06, 25.58, 101.30, 0.00,  53.10, -92.76]
+# α=20° Jacobian-역수 backswing 의 J5 만 -75° 회전.
+# J1/J4/J6 동일 (락), J2/J3/J5 만 swing.
 
-# ── Swing trajectory CSV (2-DOF iLQR, 13열: t, q, q̇, dt=10ms, 101 row) ─────
-SWING_CSV = "/kos_workspace/output/swing_traj_servoj_2dof_J2+26.csv"
-SWING_DURATION_S = 1.5   # emulator J2 한계(120°/s) 안 — 1.0s 면 RC_ERROR 로 reject 됨
-N_STRIKES        = 3     # 망치질 반복 횟수 — 각 strike 후 backswing 으로 돌아감
+# STRIKE 의 vel/acc — time=0 으로 firmware 가 자동으로 최단 시간 계산
+# vel 225 = J5 SPEC, acc 500 = SPEC.  →  swing ~0.85s (vel-limited)
+STRIKE_VEL = 225.0   # J5/J6 SPEC 한계 (M1013 URDF)
+STRIKE_ACC = 500.0   # J5/J6 acc SPEC
 
-# 디버그: 실제 robot 에 전송된 MoveSplineJoint payload 를 JSON 으로 dump 한다.
+N_STRIKES  = 5       # 망치질 반복 횟수
+
+# 디버그 dump (단일 movej 라 굳이 필요 없지만 유지)
 DEBUG_DUMP_PATH = "/tmp/hammer_demo_2dof_sent.jsonl"
 
 
 def main():
+    # ── CLI: --csv 로 trajectory CSV 지정 가능 ──
+    # 없으면 default (BACKSWING_DEG/IMPACT_DEG hardcoded + movej STRIKE) ─ 교수님 demo 용 baseline.
+    # 있으면 CSV 의 첫 row = BACKSWING, 끝 row = IMPACT, STRIKE 는 MoveSplineJoint(전체 CSV) 로 발행.
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--csv', default=None,
+                    help='CSV path (없으면 hardcoded default 사용)')
+    args = ap.parse_args()
+
+    # ── BACKSWING/IMPACT 결정 ──
+    global BACKSWING_DEG, IMPACT_DEG  # 상단 hardcoded 값을 덮어쓰기 가능하게
+    swing_pts = None   # CSV mode 일 때만 채워짐
+    if args.csv is not None and os.path.exists(args.csv):
+        with open(args.csv) as f:
+            r = csv.reader(f); header = next(r)
+            is_13col = header[0].strip().startswith('t')
+            sl = slice(1, 7) if is_13col else slice(0, 6)
+            swing_pts = [[float(x) for x in line[sl]] for line in r if line]
+        BACKSWING_DEG = swing_pts[0]
+        IMPACT_DEG    = swing_pts[-1]
+        demo_mode = f"CSV ({os.path.basename(args.csv)}, {len(swing_pts)} rows)"
+    else:
+        demo_mode = "default (hardcoded movej)"
+
     # Namespace selectable via env var: DSR_NS=dsr01 (sim, default) or dsr01_real (real robot).
     ns = os.environ.get('DSR_NS', 'dsr01')
 
     rclpy.init()
     node = Node('hammer_demo_ilqr')
     node.get_logger().info(f"Using namespace /{ns}/")
+    node.get_logger().info(f"Mode: {demo_mode}")
 
     cli_movej   = node.create_client(MoveJoint,        f'/{ns}/dsr_controller2/motion/move_joint')
     cli_movejx  = node.create_client(MoveJointx,       f'/{ns}/dsr_controller2/motion/move_jointx')
@@ -95,13 +126,13 @@ def main():
         rclpy.spin_until_future_complete(node, fut, timeout_sec=30.0)
         time.sleep(0.5)
 
-    def movej(label, joints_deg, vel=30.0, acc=30.0):
+    def movej(label, joints_deg, vel=30.0, acc=30.0, time_s=0.0):
         node.get_logger().info(
-            f"→ {label} (movej): {[round(j,1) for j in joints_deg]}  v={vel:.0f}°/s")
+            f"→ {label} (movej): {[round(j,1) for j in joints_deg]}  v={vel:.0f}°/s  t={time_s:.2f}s")
         req = MoveJoint.Request()
         req.pos = [float(a) for a in joints_deg]
         req.vel = float(vel); req.acc = float(acc)
-        req.time = 0.0; req.radius = 0.0
+        req.time = float(time_s); req.radius = 0.0
         req.mode = 0; req.blend_type = 0; req.sync_type = 0
         fut = cli_movej.call_async(req)
         rclpy.spin_until_future_complete(node, fut, timeout_sec=30.0)
@@ -212,19 +243,10 @@ def main():
         time.sleep(total_time_s + 0.3)
 
     # ─────────────────────────── DEMO ──────────────────────────────────────
-    node.get_logger().info("=== Hammer demo (iLQR planar swing) start ===")
-
-    # CSV 미리 읽기 (없으면 demo 실패)
-    if not os.path.exists(SWING_CSV):
-        node.get_logger().error(
-            f"Swing trajectory CSV not found: {SWING_CSV}\n"
-            f"   → 먼저 ~/ilqr_venv/bin/python3 scripts/ilqr/swing_ocp.py 실행하세요.")
-        return
-    swing_pts = load_swing_csv(SWING_CSV)
-    node.get_logger().info(f"   loaded {len(swing_pts)} swing waypoints from {SWING_CSV}")
-    nonlocal_backswing = swing_pts[0]   # CSV 첫 row = iLQR q0
-    node.get_logger().info(
-        f"   backswing pose (CSV row 0) = {[round(x,2) for x in nonlocal_backswing]}")
+    node.get_logger().info("=== Hammer demo (simple movej swing) start ===")
+    node.get_logger().info(f"   BACKSWING = {BACKSWING_DEG}")
+    node.get_logger().info(f"   IMPACT    = {IMPACT_DEG}")
+    node.get_logger().info(f"   ※ J1/J2/J4/J6 동일 → swing 평면 자동 락")
 
     reset_hammer()
     grip(0.067, "OPEN")
@@ -238,27 +260,27 @@ def main():
     # Pick & lift
     movejx('APPROACH', WP_APPROACH_HAMMER)
     movejx('AT_HAMMER', WP_AT_HAMMER, vel=20.0, acc=20.0)
-    # Pin-array gripper: plates over-travel into the handle (pins retract
-    # locally). Drive opening all the way to 0 mm so the sim plates visibly
-    # pass through the handle. The real motor naturally stops once the pin
-    # array conforms; the auto-grasp trigger (opening<40mm in the bridge)
-    # still fires well before we reach 0.
     grip(0.0, "CLOSE + auto-grasp")
     movejx('LIFT', WP_LIFT, vel=20.0, acc=20.0)
 
-    # Backswing pose (iLQR q₀ = CSV first row) — 첫 진입은 큰 자세 변화이므로 천천히
-    movej('BACKSWING 1', nonlocal_backswing, vel=40.0, acc=60.0)
+    # Backswing pose — 첫 진입은 큰 자세 변화이므로 천천히
+    movej('BACKSWING 1', BACKSWING_DEG, vel=40.0, acc=60.0)
 
-    # iLQR swing × N (각 strike 후 backswing 으로 돌아가서 다시 swing)
+    # STRIKE 단계 — 모드 분기:
+    #   default (no --csv): 단일 movej(BACKSWING → IMPACT), firmware trapezoidal.
+    #   CSV mode: MoveSplineJoint 로 전체 trajectory 보냄 (21pt 다운샘플, 내부 shape 유지).
     for i in range(N_STRIKES):
-        move_spline(f'STRIKE {i+1}/{N_STRIKES}', swing_pts, SWING_DURATION_S)
+        if swing_pts is not None:
+            move_spline(f'STRIKE {i+1}/{N_STRIKES}', swing_pts, 1.5)
+        else:
+            movej(f'STRIKE {i+1}/{N_STRIKES}', IMPACT_DEG,
+                  vel=STRIKE_VEL, acc=STRIKE_ACC, time_s=0.0)
         if i < N_STRIKES - 1:
-            # 임팩트 직후 자세 → 백스윙 자세 복귀.  이미 가까운 자세이므로 빠르게.
-            movej(f'RECOVER → BACKSWING {i+2}', nonlocal_backswing,
-                  vel=80.0, acc=120.0)
+            movej(f'RECOVER → BACKSWING {i+2}', BACKSWING_DEG,
+                  vel=STRIKE_VEL, acc=STRIKE_ACC)
 
     node.get_logger().info(
-        f"=== Demo done — {N_STRIKES} iLQR planar strikes 완료 ===")
+        f"=== Demo done — {N_STRIKES} simple swing 완료 ===")
     node.destroy_node()
     rclpy.shutdown()
 

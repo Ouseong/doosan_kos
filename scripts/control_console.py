@@ -1661,6 +1661,20 @@ class GripperPanel(tk.Frame):
         self.demo_btn.pack(side="right", padx=(8, 4), pady=8)
         self._demo_running = False
 
+        # Trajectory dropdown — CSV 골라서 demo 에 적용 (default = hardcoded movej)
+        import glob as _glob
+        csvs = sorted(_glob.glob('/kos_workspace/output/swing_traj*.csv'))
+        self._traj_paths = {"default (movej, no CSV)": None}
+        for p in csvs:
+            short = os.path.basename(p).replace('.csv', '').replace('swing_traj_', '')
+            self._traj_paths[short] = p
+        self._traj_var = tk.StringVar(value="default (movej, no CSV)")
+        self.traj_menu = tk.OptionMenu(self, self._traj_var, *self._traj_paths.keys())
+        self.traj_menu.config(bg=T.PANEL, fg=T.WP, relief="flat",
+                              font=tkfont.Font(family="DejaVu Sans", size=8),
+                              highlightthickness=0)
+        self.traj_menu.pack(side="right", padx=(0, 4), pady=8)
+
     def _publish(self, opening_m):
         try:
             self.app.robot.gripper_set(opening_m)
@@ -1688,11 +1702,14 @@ class GripperPanel(tk.Frame):
         # Pick namespace by current target_mode: real → /dsr01_real, otherwise → /dsr01.
         # "preview" stays on sim namespace; the demo doesn't have its own preview gate.
         ns = "dsr01_real" if self.app.robot.target_mode == "real" else "dsr01"
+        # 선택된 trajectory CSV — None 이면 default (hardcoded movej)
+        csv_path = self._traj_paths.get(self._traj_var.get())
+        csv_arg = f' --csv {csv_path}' if csv_path else ''
         cmd = ['/bin/bash', '-c',
                f'export DSR_NS={ns} && '
                'source /opt/ros/jazzy/setup.bash && '
                'source /ros2_ws/install/setup.bash && '
-               'python3 /kos_workspace/scripts/hammer_demo_2dof.py']
+               f'python3 /kos_workspace/scripts/hammer_demo_2dof.py{csv_arg}']
         rc = -1
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE,

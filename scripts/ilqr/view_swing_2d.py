@@ -26,7 +26,7 @@ import pinocchio as pin
 from matplotlib.widgets import Slider
 
 URDF = "/home/kos/Desktop/Code/doosan_kos/usd/m1013/m1013_with_hammer.urdf"
-CSV  = "/home/kos/Desktop/Code/doosan_kos/output/swing_traj.csv"
+CSV  = "/home/kos/Desktop/Code/doosan_kos/output/swing_traj_optimal.csv"
 
 NAIL_BASE   = np.array([-0.65, -0.45, 0.05])
 NAIL_HEAD_Z = 0.10
