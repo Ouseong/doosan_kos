@@ -28,7 +28,7 @@ from datetime import datetime
 
 import rclpy
 from rclpy.node import Node
-from dsr_msgs2.srv import MoveJoint, MoveJointx, MoveLine, MoveSplineJoint
+from dsr_msgs2.srv import MoveJoint, MoveJointx, MoveSplineJoint
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Float64MultiArray, Empty
 
@@ -90,12 +90,11 @@ def main():
 
     cli_movej   = node.create_client(MoveJoint,        f'/{ns}/dsr_controller2/motion/move_joint')
     cli_movejx  = node.create_client(MoveJointx,       f'/{ns}/dsr_controller2/motion/move_jointx')
-    cli_movel   = node.create_client(MoveLine,         f'/{ns}/dsr_controller2/motion/move_line')
     cli_spline  = node.create_client(MoveSplineJoint,  f'/{ns}/dsr_controller2/motion/move_spline_joint')
 
     node.get_logger().info("Waiting for motion services ...")
     for c, name in ((cli_movej, 'movej'), (cli_movejx, 'movejx'),
-                    (cli_movel, 'movel'), (cli_spline, 'move_spline_joint')):
+                    (cli_spline, 'move_spline_joint')):
         if not c.wait_for_service(timeout_sec=10.0):
             node.get_logger().error(f"{name} service not ready"); return
 
@@ -151,19 +150,6 @@ def main():
         for _ in range(5):
             gp_pub.publish(msg); time.sleep(0.1)
         time.sleep(1.5)
-
-    def load_swing_csv(path):
-        """13열 (t, J1..J6, J1_dot..J6_dot) 자동 감지 — 6열 구버전도 지원."""
-        rows = []
-        with open(path) as f:
-            r = csv.reader(f)
-            header = next(r)
-            is_13col = header[0].strip().startswith('t')
-            sl = slice(1, 7) if is_13col else slice(0, 6)
-            for line in r:
-                if not line: continue
-                rows.append([float(x) for x in line[sl]])
-        return rows
 
     def move_spline(label, waypoints, total_time_s):
         """MoveSplineJoint with cascading fallback (21pt → 11pt → single movej).

@@ -24,7 +24,7 @@ import pinocchio as pin
 import crocoddyl
 
 URDF = "/home/kos/Desktop/Code/doosan_kos/usd/m1013/m1013_with_hammer.urdf"
-OUT_CSV = "/home/kos/Desktop/Code/doosan_kos/output/swing_traj.csv"
+OUT_CSV = "/home/kos/Desktop/Code/doosan_kos/output/swing_ilqr.csv"
 
 NAIL_HEAD = np.array([-0.65, -0.45, 0.10])
 
@@ -227,8 +227,14 @@ def main():
     print(f"converged={converged}, iters={solver.iter}, cost={solver.cost:.4f}")
 
     xs = np.array(solver.xs)
-    qs = xs[:, :model.nq]
-    qdots = xs[:, model.nq:]
+    qs    = xs[:, :model.nq]   # (T+1, nq)
+    qdots = xs[:, model.nq:]   # (T+1, nv)
+
+    # Acceleration via central difference (rad/s²)
+    qddots = np.zeros_like(qdots)
+    qddots[1:-1] = (qdots[2:] - qdots[:-2]) / (2 * DT)
+    qddots[0]    = qddots[1]
+    qddots[-1]   = qddots[-2]
 
     # ── Verification ──
     print("\n=== Verification ===")
@@ -262,12 +268,16 @@ def main():
         vp = np.max(np.abs(v_deg[:, j]))
         print(f"  J{j+1}  peak={vp:6.1f}°/s  ({100*vp/limits[j]:.0f}% limit)")
 
-    # Save CSV
+    # Save CSV: t, q (deg), qdot (deg/s), qddot (deg/s²)  — 19 columns
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
-    np.savetxt(OUT_CSV, np.rad2deg(qs), delimiter=',', fmt='%.4f',
-               header=f'J1,J2,J3,J4,J5,J6  (deg, iLQR optimal swing, dt={DT}s, rows={len(qs)})',
-               comments='')
-    print(f"\nSaved → {OUT_CSV}")
+    t_col = np.arange(len(qs))[:, None] * DT
+    data_out = np.hstack([t_col, np.rad2deg(qs), np.rad2deg(qdots), np.rad2deg(qddots)])
+    header = ('t,'
+              'J1,J2,J3,J4,J5,J6,'
+              'J1_dot,J2_dot,J3_dot,J4_dot,J5_dot,J6_dot,'
+              'J1_ddot,J2_ddot,J3_ddot,J4_ddot,J5_ddot,J6_ddot')
+    np.savetxt(OUT_CSV, data_out, delimiter=',', fmt='%.4f', header=header, comments='')
+    print(f"\nSaved → {OUT_CSV}  ({len(qs)} rows, 19 cols: t + pos + vel + acc)")
 
 
 if __name__ == "__main__":

@@ -29,19 +29,42 @@ static void sleep_until(std::chrono::steady_clock::time_point t) {
     if (t > now) std::this_thread::sleep_until(t);
 }
 
-static std::vector<std::array<float, 6>> load_csv(const std::string& path) {
-    std::vector<std::array<float, 6>> rows;
+// 19-column CSV: t, J1..J6 (deg), J1_dot..J6_dot (deg/s), J1_ddot..J6_ddot (deg/s²)
+// 6-column legacy (pos only) is also accepted; vel/acc will be zero.
+struct TrajFrame {
+    float pos[6];
+    float vel[6];
+    float acc[6];
+};
+
+static std::vector<TrajFrame> load_csv(const std::string& path) {
+    std::vector<TrajFrame> rows;
     std::ifstream f(path);
     if (!f.is_open()) { fprintf(stderr, "cannot open %s\n", path.c_str()); return rows; }
     std::string line;
-    std::getline(f, line);   // header
+    std::getline(f, line);   // header — detect column count
+    bool has_vel_acc = (line.find("_dot") != std::string::npos);
+    bool has_time    = (line[0] == 't');
+    int  pos_offset  = has_time ? 1 : 0;
+
     while (std::getline(f, line)) {
         if (line.empty()) continue;
         std::stringstream ss(line);
-        std::array<float, 6> row;
         std::string cell;
-        for (int i = 0; i < 6; ++i) { std::getline(ss, cell, ','); row[i] = std::stof(cell); }
-        rows.push_back(row);
+        TrajFrame fr;
+        memset(&fr, 0, sizeof(fr));
+        int total = pos_offset + (has_vel_acc ? 18 : 6);
+        std::vector<float> vals;
+        for (int i = 0; i < total; ++i) {
+            std::getline(ss, cell, ',');
+            vals.push_back(std::stof(cell));
+        }
+        for (int j = 0; j < 6; ++j) fr.pos[j] = vals[pos_offset + j];
+        if (has_vel_acc) {
+            for (int j = 0; j < 6; ++j) fr.vel[j] = vals[pos_offset + 6 + j];
+            for (int j = 0; j < 6; ++j) fr.acc[j] = vals[pos_offset + 12 + j];
+        }
+        rows.push_back(fr);
     }
     return rows;
 }
@@ -108,60 +131,68 @@ int main(int argc, char** argv) {
     drfl.set_accj_rt(acc_lim);
 
     // Build trajectory
-    std::vector<std::array<float, 6>> traj;
+    std::vector<TrajFrame> traj;
     int rate_hz = 100;
     if (test_mode) {
-        // 2 s, J6 sinusoidal ±10° from current pose (visible to the eye)
+        // 2 s, J6 sinusoidal ±10° — analytical vel/acc feedforward
+        float omega = 2.0f * M_PI / 2.0f;   // 1 Hz sine
+        float amp   = 10.0f;                 // ±10°
         for (int i = 0; i < 200; ++i) {
             float t = i * 0.01f;
-            float dj6 = 10.0f * std::sin(2.0f * M_PI * t / 2.0f);
-            std::array<float, 6> row;
-            for (int j = 0; j < 6; ++j) row[j] = start_deg[j];
-            row[5] += dj6;
-            traj.push_back(row);
+            TrajFrame fr; memset(&fr, 0, sizeof(fr));
+            for (int j = 0; j < 6; ++j) fr.pos[j] = start_deg[j];
+            fr.pos[5] += amp * std::sin(omega * t);
+            fr.vel[5]  = amp * omega * std::cos(omega * t);          // deg/s
+            fr.acc[5]  = -amp * omega * omega * std::sin(omega * t); // deg/s²
+            traj.push_back(fr);
         }
         // hold final pose 0.5 s
         for (int i = 0; i < 50; ++i) {
-            std::array<float, 6> row;
-            for (int j = 0; j < 6; ++j) row[j] = start_deg[j];
-            traj.push_back(row);
+            TrajFrame fr; memset(&fr, 0, sizeof(fr));
+            for (int j = 0; j < 6; ++j) fr.pos[j] = start_deg[j];
+            traj.push_back(fr);
         }
     } else {
-        std::vector<std::array<float, 6>> swing = load_csv(csv_path);
+        std::vector<TrajFrame> swing = load_csv(csv_path);
         if (swing.empty()) { fprintf(stderr, "empty CSV\n"); return 1; }
-        printf("    swing CSV %zu rows\n", swing.size());
-        // Phase A: smooth approach from current pose to swing[0] over 3 s (300 samples)
+        printf("    swing CSV %zu rows (vel/acc feedforward: %s)\n",
+               swing.size(),
+               (swing[0].vel[0] != 0 || swing[0].vel[1] != 0) ? "yes" : "pos-only");
+        // Phase A: smoothstep from current pose to swing[0] over 3 s — vel/acc zero (slow phase)
         const int n_warmup = 300;
         for (int i = 0; i < n_warmup; ++i) {
-            float a = (float)(i + 1) / n_warmup;   // 0→1 linear
-            // smoothstep for gentler ends
+            float a = (float)(i + 1) / n_warmup;
             float s = a * a * (3.0f - 2.0f * a);
-            std::array<float, 6> row;
-            for (int j = 0; j < 6; ++j) row[j] = start_deg[j] * (1.0f - s) + swing[0][j] * s;
-            traj.push_back(row);
+            TrajFrame fr; memset(&fr, 0, sizeof(fr));
+            for (int j = 0; j < 6; ++j) fr.pos[j] = start_deg[j] * (1.0f - s) + swing[0].pos[j] * s;
+            traj.push_back(fr);
         }
-        // Phase B: swing CSV (1 s, 101 samples)
+        // Phase B: swing CSV with full feedforward
         for (auto& r : swing) traj.push_back(r);
         // Phase C: hold impact pose 0.5 s
-        for (int i = 0; i < 50; ++i) traj.push_back(swing.back());
+        for (int i = 0; i < 50; ++i) {
+            TrajFrame fr = swing.back();
+            memset(fr.vel, 0, sizeof(fr.vel));
+            memset(fr.acc, 0, sizeof(fr.acc));
+            traj.push_back(fr);
+        }
     }
     printf("[8] streaming %zu samples at %d Hz\n", traj.size(), rate_hz);
 
     // Stream
     auto period = std::chrono::microseconds(1000000 / rate_hz);
     auto next = std::chrono::steady_clock::now();
-    float zero[6] = {0, 0, 0, 0, 0, 0};
     float servo_time = 0.02f;   // tight tracking: 2× streaming period (10ms) = 20ms smoothing window
 
     int n_ok = 0, n_fail = 0;
     for (size_t i = 0; i < traj.size(); ++i) {
-        float pos[6];
-        for (int j = 0; j < 6; ++j) pos[j] = traj[i][j];
-        bool ok = drfl.servoj_rt(pos, zero, zero, servo_time);
+        bool ok = drfl.servoj_rt(traj[i].pos, traj[i].vel, traj[i].acc, servo_time);
         if (ok) n_ok++; else n_fail++;
         if (i < 5 || (i % 50 == 0)) {
             printf("    i=%3zu ok=%d pos=[%.1f %.1f %.1f %.1f %.1f %.1f]\n",
-                   i, ok ? 1 : 0, pos[0], pos[1], pos[2], pos[3], pos[4], pos[5]);
+                   i, ok ? 1 : 0,
+                   traj[i].pos[0], traj[i].pos[1], traj[i].pos[2],
+                   traj[i].pos[3], traj[i].pos[4], traj[i].pos[5]);
         }
         next += period;
         sleep_until(next);
