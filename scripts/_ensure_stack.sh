@@ -18,7 +18,26 @@ ensure_stack() {
     local proj_root
     proj_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-    echo "[1/5] X11 access..."
+    # Tk GUIs AND the Isaac Sim window (headless=False) need the *invoking
+    # user's* X display. The container bakes DISPLAY=:1, which on this
+    # multi-seat host belongs to another user (hckang) → window never opens
+    # / "Authorization required". Pass through host $DISPLAY (oem == :2).
+    local gui_display="${DISPLAY:-:2}"
+
+    # Isaac Sim runs windowed (headless=False) so it must render on the GPU
+    # actually wired to the display — otherwise Vulkan can't present and the
+    # window never appears ("GPU cannot present rendered content from the
+    # window to the screen"). This host has 3× A6000; only the display-active
+    # one can present. Auto-detect it; fall back to 2 (this workstation), and
+    # a single-GPU host (DGX Spark) resolves to 0. Override with ISAAC_GPU.
+    local isaac_gpu="${ISAAC_GPU:-}"
+    if [ -z "$isaac_gpu" ] && command -v nvidia-smi > /dev/null; then
+        isaac_gpu="$(nvidia-smi --query-gpu=index,display_active --format=csv,noheader 2>/dev/null \
+                     | awk -F', ' '$2=="Enabled"{print $1; exit}')"
+    fi
+    isaac_gpu="${isaac_gpu:-2}"
+
+    echo "[1/5] X11 access (DISPLAY=$gui_display, ISAAC_GPU=$isaac_gpu)..."
     if command -v xhost > /dev/null; then
         xhost +local: > /dev/null 2>&1 || true
     fi
@@ -74,6 +93,8 @@ ensure_stack() {
             echo "  ✓ 이미 실행 중"
         else
             docker exec -d doosan_kos bash -lc "
+                export DISPLAY=$gui_display
+                export CUDA_VISIBLE_DEVICES=$isaac_gpu
                 export PYTHONUNBUFFERED=1
                 export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:\$LD_LIBRARY_PATH
                 /isaac-sim/python.sh /kos_workspace/isaac/m1013_gripper_bridge.py > /tmp/bridge.log 2>&1
@@ -86,8 +107,11 @@ ensure_stack() {
                     ready=1
                     break
                 fi
-                if docker exec doosan_kos grep -qiE "Traceback|ERROR" /tmp/bridge.log 2>/dev/null; then
-                    echo " ✗ 에러 발생. docker exec doosan_kos tail /tmp/bridge.log 확인"
+                # Only a real Python Traceback is fatal. Isaac/Kit spew benign
+                # "[Error]" log lines (vulkan, fabric, swapchain warmup) that are
+                # NOT crashes — matching them here used to abort a healthy boot.
+                if docker exec doosan_kos grep -q "Traceback (most recent call last)" /tmp/bridge.log 2>/dev/null; then
+                    echo " ✗ 파이썬 크래시. docker exec doosan_kos tail /tmp/bridge.log 확인"
                     return 1
                 fi
                 echo -n "."
@@ -105,6 +129,7 @@ ensure_stack() {
             echo "  ✓ 이미 실행 중"
         else
             docker exec -d doosan_kos bash -lc "
+                export DISPLAY=$gui_display
                 source /opt/ros/jazzy/setup.bash &&
                 source /ros2_ws/install/setup.bash &&
                 python3 /kos_workspace/scripts/telemetry.py > /tmp/telem.log 2>&1
@@ -123,6 +148,7 @@ ensure_stack() {
             echo "  ✓ 이미 실행 중"
         else
             docker exec -d doosan_kos bash -lc "
+                export DISPLAY=$gui_display
                 source /opt/ros/jazzy/setup.bash &&
                 source /ros2_ws/install/setup.bash &&
                 python3 /kos_workspace/scripts/control_console.py > /tmp/console.log 2>&1

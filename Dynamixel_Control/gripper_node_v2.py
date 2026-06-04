@@ -44,16 +44,17 @@ UNIT_TO_MNM   = 3.0
 UNIT_TO_RPM   = 0.229
 MAX_OPENING_M = 0.067
 
-# Default endpoints — measured with the Dynamixel Wizard against the
-# user's actual mechanical range:
-#   fully open  =   0°  (motor home)            ->     0 ticks
-#   fully close = -175° (mechanical hard stop)  -> -1991 ticks
-# Direction: closing is NEGATIVE ticks. The earlier +1991 attempt drove
-# the motor into the open-side hard stop, which is why it stalled at 85
-# ticks. Extended-position mode (4) is required for the negative range.
-# XM430 has 4096 ticks per 360° so -175° = -175 * 4096 / 360 ≈ -1991.
-DEFAULT_OPEN_TICKS  = 0
-DEFAULT_CLOSE_TICKS = -1991
+# Default endpoints — captured by hand-positioning the gripper against its
+# actual mechanical range (torque off, read present_position):
+#   fully open  -> 3974 ticks
+#   fully close -> 2280 ticks
+# Direction: closing DECREASES ticks (3974 -> 2280), span ≈ 1694 ticks.
+# The previous open=0 was wrong: driving toward 0 jammed the finger into a
+# hard stop and tripped the overload error (hardware_error bit5), which
+# auto-disabled torque — that is why "open" appeared to do nothing.
+# Extended-position mode (4) honors the signed delta either direction.
+DEFAULT_OPEN_TICKS  = 3974
+DEFAULT_CLOSE_TICKS = 2280
 
 # Motion profile. profile_velocity=0 means "unlimited" (capped by the
 # Velocity Limit reg, default 1023 ≈ 234 RPM) which is what the Dynamixel

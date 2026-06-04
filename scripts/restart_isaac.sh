@@ -28,10 +28,21 @@ echo ""
 # DGX Spark). On multi-GPU servers, set ISAAC_GPU=2 (or whichever index)
 # before running this script. Picking a non-existent index makes Isaac
 # Sim silently fall back to a CPU-only render that never opens a window.
-ISAAC_GPU="${ISAAC_GPU:-0}"
-echo "=== Bridge GPU $ISAAC_GPU 재시작 ==="
+# Default to the GPU actually wired to the display (display_active=Enabled) so
+# the windowed Isaac Sim can present its window. Hardcoding 0 fails on this
+# multi-GPU host where only GPU 2 drives the screen. Single-GPU hosts resolve
+# to 0 anyway. Override with ISAAC_GPU=N.
+if [ -z "${ISAAC_GPU:-}" ] && command -v nvidia-smi > /dev/null; then
+    ISAAC_GPU="$(nvidia-smi --query-gpu=index,display_active --format=csv,noheader 2>/dev/null \
+                 | awk -F', ' '$2=="Enabled"{print $1; exit}')"
+fi
+ISAAC_GPU="${ISAAC_GPU:-2}"
+GUI_DISPLAY="${DISPLAY:-:2}"
+echo "=== Bridge GPU $ISAAC_GPU / DISPLAY $GUI_DISPLAY 재시작 ==="
+xhost +local: >/dev/null 2>&1 || true
 docker exec doosan_kos bash -c '> /tmp/bridge.log'
-docker exec -d -e "ISAAC_GPU=$ISAAC_GPU" doosan_kos bash -lc '
+docker exec -d -e "ISAAC_GPU=$ISAAC_GPU" -e "GUI_DISPLAY=$GUI_DISPLAY" doosan_kos bash -lc '
+  export DISPLAY=$GUI_DISPLAY
   export PYTHONUNBUFFERED=1
   export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:$LD_LIBRARY_PATH
   export CUDA_VISIBLE_DEVICES=$ISAAC_GPU
@@ -63,30 +74,62 @@ docker exec doosan_kos bash -lc '
   timeout 30 ros2 service call /dsr01/dsr_controller2/motion/move_joint dsr_msgs2/srv/MoveJoint "{pos: [0.0, 0.0, -90.0, 0.0, -90.0, 0.0], vel: 30.0, acc: 30.0, time: 0.0, radius: 0.0, mode: 0, blend_type: 0, sync_type: 0}"
 ' 2>&1 | tail -10
 
+# Tk GUIs (telemetry/console) need the *host user's* X display. The container
+# image bakes DISPLAY=:1, which on a multi-seat host belongs to a DIFFERENT
+# user (e.g. hckang) — connecting there fails with "Authorization required".
+# Pass through the invoking user's $DISPLAY (oem == :2). Also open local X
+# access so the container's ubuntu uid can connect to the socket.
+GUI_DISPLAY="${DISPLAY:-:2}"
 echo ""
+echo "=== X display = $GUI_DISPLAY (xhost +local:) ==="
+xhost +local: >/dev/null 2>&1 || true
+
 echo "=== Telemetry 시작 ==="
-docker exec -d doosan_kos bash -lc '
+docker exec -d doosan_kos bash -lc "
+  export DISPLAY=$GUI_DISPLAY
   source /opt/ros/jazzy/setup.bash &&
   source /ros2_ws/install/setup.bash &&
   python3 /kos_workspace/scripts/telemetry.py > /tmp/telem.log 2>&1
-'
+"
 
 echo "=== Control Console 시작 ==="
-docker exec -d doosan_kos bash -lc '
+docker exec -d doosan_kos bash -lc "
+  export DISPLAY=$GUI_DISPLAY
   source /opt/ros/jazzy/setup.bash &&
   source /ros2_ws/install/setup.bash &&
   python3 /kos_workspace/scripts/control_console.py > /tmp/console.log 2>&1
-'
+"
 
-sleep 4
+# Tk GUIs init rclpy first (~5s) THEN call tk.Tk(); a display-auth crash lands
+# AFTER that. Checking too early sees the doomed process still in rclpy init and
+# falsely reports ✓. Wait past the Tk handshake before judging.
+sleep 8
 echo ""
 echo "=== 최종 상태 ==="
-docker exec doosan_kos bash -c "
-  pgrep -f m1013_gripper_bridge.py > /dev/null && echo '  ✓ bridge'    || echo '  ✗ bridge'
-  pgrep -f telemetry.py            > /dev/null && echo '  ✓ telemetry'  || echo '  ✗ telemetry'
-  pgrep -f control_console.py      > /dev/null && echo '  ✓ console'    || echo '  ✗ console'
-"
+gui_status() {  # name -> ✓ only if process alive AND log has no Traceback
+    local label="$1" pat="$2" log="$3"
+    if docker exec doosan_kos pgrep -f "$pat" > /dev/null; then
+        if docker exec doosan_kos grep -q "Traceback" "$log" 2>/dev/null; then
+            echo "  ✗ $label (살아있으나 로그에 Traceback — $log 확인)"
+        else
+            echo "  ✓ $label"
+        fi
+    else
+        echo "  ✗ $label (죽음 — $log 확인)"
+        docker exec doosan_kos tail -4 "$log" 2>/dev/null | sed 's/^/      /'
+    fi
+}
+docker exec doosan_kos pgrep -f m1013_gripper_bridge.py > /dev/null && echo '  ✓ bridge' || echo '  ✗ bridge'
+gui_status telemetry telemetry.py       /tmp/telem.log
+gui_status console   control_console.py  /tmp/console.log
 
 echo ""
 echo "=== /dsr01/joint_states 검증 ==="
-docker exec doosan_kos bash -lc 'source /opt/ros/jazzy/setup.bash && timeout 5 ros2 topic echo --once /dsr01/joint_states 2>&1' | grep -E "name|position" | head -8
+# --once can emit a "message was lost" diagnostic that desyncs a naive grep.
+# Echo a few samples and pull the first real position line instead.
+js=$(docker exec doosan_kos bash -lc 'source /opt/ros/jazzy/setup.bash && timeout 6 ros2 topic echo --field position /dsr01/joint_states 2>/dev/null | grep -m1 "^array"')
+if [ -n "$js" ]; then
+    echo "  ✓ joint_states publishing: position=$js"
+else
+    echo "  ✗ joint_states 무응답 (bridge 발행 확인 필요)"
+fi

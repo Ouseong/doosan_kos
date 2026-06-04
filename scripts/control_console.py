@@ -58,7 +58,7 @@ ROBOT_STATE_NAMES = {
 ROBOT_STATE_READY = {1, 2, 7}  # STANDBY, MOVING, HOMING
 
 # ──────── Workspace safety limits ──────────────────────────
-TCP_Z_MIN_MM = 50.0          # don't let the gripper finger-tip drop below this (floor + margin)
+TCP_Z_MIN_MM = 28.9          # finger-tip floor set to the user's taught position (TCP Z=187mm @ real posx 2026-06-04); tip can't go below this
 COLLISION_SENSITIVITY = 50   # 0-100 ; controller-side reactive stop threshold
 SINGULARITY_MODE = 0         # 0=AVOID, 1=TASK_STOP, 2=VAR_VEL
 
