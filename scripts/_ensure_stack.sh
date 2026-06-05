@@ -13,7 +13,13 @@
 
 ensure_stack() {
     local with_isaac=1
-    [ "${1:-}" = "--no-isaac" ] && with_isaac=0
+    local no_telemetry=0
+    for arg in "$@"; do
+        case "$arg" in
+            --no-isaac)     with_isaac=0 ;;
+            --no-telemetry) no_telemetry=1 ;;
+        esac
+    done
 
     local proj_root
     proj_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -123,23 +129,27 @@ ensure_stack() {
             fi
         fi
 
-        # Isaac Sim 이 켜져있으면 telemetry 창도 같이 띄움
-        echo "[6/7] Telemetry window..."
-        if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
-            echo "  ✓ 이미 실행 중"
-        else
-            docker exec -d doosan_kos bash -lc "
-                export DISPLAY=$gui_display
-                source /opt/ros/jazzy/setup.bash &&
-                source /ros2_ws/install/setup.bash &&
-                python3 /kos_workspace/scripts/telemetry.py > /tmp/telem.log 2>&1
-            "
-            sleep 2
+        # Telemetry (선택적 — --no-telemetry 플래그로 건너뜀)
+        if [ "$no_telemetry" = "0" ]; then
+            echo "[6/7] Telemetry window..."
             if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
-                echo "  ✓ 시작됨"
+                echo "  ✓ 이미 실행 중"
             else
-                echo "  ⚠ 시작 실패. docker exec doosan_kos tail /tmp/telem.log 확인"
+                docker exec -d doosan_kos bash -lc "
+                    export DISPLAY=$gui_display
+                    source /opt/ros/jazzy/setup.bash &&
+                    source /ros2_ws/install/setup.bash &&
+                    python3 /kos_workspace/scripts/telemetry.py > /tmp/telem.log 2>&1
+                "
+                sleep 2
+                if docker exec doosan_kos pgrep -f telemetry.py > /dev/null 2>&1; then
+                    echo "  ✓ 시작됨"
+                else
+                    echo "  ⚠ 시작 실패. docker exec doosan_kos tail /tmp/telem.log 확인"
+                fi
             fi
+        else
+            echo "[6/7] Telemetry — 건너뜀 (--no-telemetry)"
         fi
 
         # Control Console (M1013 + 그리퍼 GUI 제어)
