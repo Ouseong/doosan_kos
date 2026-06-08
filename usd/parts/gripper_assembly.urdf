@@ -14,7 +14,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="gripper_body_urdf.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="gripper_body_camera_urdf.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="blue">
         <color rgba="0.2 0.5 0.8 1.0"/>
@@ -23,7 +23,7 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="gripper_body_urdf.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="gripper_body_camera_urdf.stl" scale="0.001 0.001 0.001"/>
       </geometry>
     </collision>
     <inertial>
@@ -100,6 +100,29 @@
     <limit lower="0.0" upper="0.036" effort="50.0" velocity="0.1"/>
     <dynamics damping="0.5" friction="0.1"/>
     <mimic joint="gripper_left_joint" multiplier="1.0" offset="0.0"/>
+  </joint>
+
+
+  <!-- ── D435 RGB 카메라 (gripper_body에 고정 장착) ── -->
+  <!-- 위치: 렌즈 중심 기준 (STL 분석값)
+       X=-0.0402m (그리퍼 중심에서 좌측 40mm)
+       Y=-0.0855m (마운트면에서 손가락 방향으로 85.5mm)
+       Z=-0.0676m (플랜지 아래 67.6mm)
+       방향: 손가락 방향(-Y) + 45° 하향 = X축 135° 회전
+       반대로 보이면 rpy="0.7854 0 0" 으로 변경 -->
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <parent link="gripper_base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="-0.0402 -0.0855 -0.0676" rpy="2.3562 0 0"/>
+  </joint>
+
+  <!-- RGB 광학 프레임 (ROS 카메라 표준: Z=전방, X=우, Y=하) -->
+  <link name="camera_color_optical_frame"/>
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_color_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
   </joint>
 
 </robot>
