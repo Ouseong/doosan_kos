@@ -59,12 +59,12 @@ else
     if docker exec doosan_kos test -e "$webcam_dev" 2>/dev/null; then
         docker exec -d doosan_kos bash -lc "
             export DISPLAY=$gui_display
-            python3 /kos_workspace/scripts/webcam_view.py --dev $webcam_dev \
+            python3 /kos_workspace/scripts/cam/webcam_view.py --dev $webcam_dev \
                 > /tmp/webcam.log 2>&1
         "
         echo "  ✓ 컨테이너 내 뷰어 시작됨 (q 눌러 종료)"
     else
-        DISPLAY="$gui_display" python3 "$proj_root/scripts/webcam_view.py" \
+        DISPLAY="$gui_display" python3 "$proj_root/scripts/cam/webcam_view.py" \
             --dev "$webcam_dev" &
         echo "  ✓ 호스트 뷰어 시작됨 (q 눌러 종료)"
     fi
@@ -82,20 +82,36 @@ rm -f "$proj_root/.cam_open"
 if [ "$with_isaac" = "1" ]; then
     echo ""
     echo "[d435] D435 S/N:043322073704 뷰어 시작..."
-    d435_found=$(python3 -c "
+
+    # pyrealsense2 는 시스템 python3.10 에 설치돼 있음. 셸 기본 python3 가
+    # miniconda(3.13 등)로 잡히면 import 가 실패하므로, pyrealsense2 가 실제로
+    # 있는 인터프리터를 골라 감지·데몬 양쪽에 같은 걸 쓴다.
+    cam_py=""
+    for cand in python3.10 python3 python3.11 python3.12; do
+        if command -v "$cand" > /dev/null 2>&1 \
+           && "$cand" -c "import pyrealsense2" > /dev/null 2>&1; then
+            cam_py="$cand"; break
+        fi
+    done
+
+    if [ -z "$cam_py" ]; then
+        echo "  pyrealsense2 있는 python 없음 (카메라 건너뜀)"
+    else
+        d435_found=$("$cam_py" -c "
 import pyrealsense2 as rs
 serials = [d.get_info(rs.camera_info.serial_number) for d in rs.context().devices]
 print('yes' if '043322073704' in serials else 'no')
 " 2>/dev/null || echo "no")
 
-    if [ "$d435_found" = "yes" ]; then
-        pkill -f cam_daemon.py 2>/dev/null; sleep 0.5
-        nohup python3 "$proj_root/scripts/cam_daemon.py" \
-            > /tmp/cam_daemon.log 2>&1 &
-        disown
-        echo "  ✓ 카메라 데몬 시작됨 (콘솔 3번에서 Open Camera 버튼으로 제어)"
-    else
-        echo "  D435 S/N:043322073704 없음 (건너뜀)"
+        if [ "$d435_found" = "yes" ]; then
+            pkill -f cam_daemon.py 2>/dev/null; sleep 0.5
+            nohup "$cam_py" "$proj_root/scripts/cam/cam_daemon.py" \
+                > /tmp/cam_daemon.log 2>&1 &
+            disown
+            echo "  ✓ 카메라 데몬 시작됨 ($cam_py) — 콘솔 3번 Open Camera 로 제어"
+        else
+            echo "  D435 S/N:043322073704 연결 안 됨 (건너뜀)"
+        fi
     fi
 fi
 

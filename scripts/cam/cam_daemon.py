@@ -19,7 +19,21 @@ import time
 PORT = 19876
 SERIAL = "043322073704"
 SCRIPT = os.path.join(os.path.dirname(__file__), "d435_rgb_view.py")
-WORKSPACE = os.path.dirname(os.path.dirname(__file__))  # doosan_kos root
+WORKSPACE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # doosan_kos root (scripts/cam → scripts → root)
+LATEST_FILE = "/tmp/cam_latest.txt"   # live viewer's per-frame detection
+
+
+def _read_latest(max_age=0.4):
+    """Return the viewer's latest detection line if it's fresh enough, else
+    None. Lets 'capture' answer from the running viewer without killing it."""
+    try:
+        if time.time() - os.path.getmtime(LATEST_FILE) > max_age:
+            return None
+        with open(LATEST_FILE) as f:
+            line = f.read().strip()
+        return line or None
+    except Exception:
+        return None
 
 PRESETS = {
     "orange": [((5, 110, 110), (22, 255, 255))],
@@ -70,14 +84,35 @@ def _detect_blob(img_bgr, color, min_area):
             best, best_area = c, area
     if best is None:
         return None, None, None, img_bgr
-    x, y, w, h = cv2.boundingRect(best)
-    px_size = float(w)
-    bx = x + w / 2.0   # blob center x
-    by = y + h / 2.0   # blob center y
+
+    # Use ONLY the largest blob (the target), not the whole colour mask — any
+    # stray colour elsewhere in the frame (a second blue object, reflections)
+    # would otherwise drag the centroid and inflate the size. Rasterize just the
+    # winning contour into its own mask.
+    blob = np.zeros(mask.shape, np.uint8)
+    cv2.drawContours(blob, [best], -1, 255, -1)
+
+    # Size = colored-pixel count of the blob → equivalent LENGTH via sqrt. The
+    # parallax formula h2 = dz·w1/(w2-w1) assumes size ∝ distance, but pixel
+    # AREA ∝ distance², so sqrt restores the dimension. More robust than a bbox
+    # edge for an irregular / rotated blob.
+    px_size = float(np.sqrt(cv2.countNonZero(blob)))
+
+    # Centroid from the blob moments (fall back to bbox center if degenerate).
+    M = cv2.moments(blob)
+    if M["m00"] > 0:
+        bx = M["m10"] / M["m00"]
+        by = M["m01"] / M["m00"]
+    else:
+        x, y, w, h = cv2.boundingRect(best)
+        bx = x + w / 2.0
+        by = y + h / 2.0
+
+    # Debug overlay: contour outline + centroid marker + measured size.
     cv2.drawContours(img_bgr, [best], -1, (0, 200, 255), 2)
     cv2.circle(img_bgr, (int(bx), int(by)), 4, (0, 200, 255), -1)
-    cv2.putText(img_bgr, f"w={px_size:.0f}px",
-                (x, y - 8 if y > 16 else y + h + 16),
+    cv2.putText(img_bgr, f"sqrt(area)={px_size:.0f}px",
+                (int(bx) - 40, int(by) - 12),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
     return px_size, bx, by, img_bgr
 
@@ -90,7 +125,9 @@ def _do_capture(idx, color, min_area):
 
     pipeline = rs.pipeline()
     cfg = rs.config()
-    cfg.enable_device(SERIAL)
+    serial = _resolve_serial()
+    if serial:
+        cfg.enable_device(serial)
     cfg.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     profile = pipeline.start(cfg)
 
@@ -117,6 +154,26 @@ def _do_capture(idx, color, min_area):
     return px_w, fx, fy, ppx, ppy, bx, by
 
 
+def _resolve_serial():
+    """Serial of the camera to use: the hard-coded SERIAL if it's connected,
+    otherwise the first RealSense found (robust to swapping the camera). None
+    if no RealSense is connected."""
+    import pyrealsense2 as rs
+    serials = [d.get_info(rs.camera_info.serial_number)
+               for d in rs.context().devices]
+    if SERIAL in serials:
+        return SERIAL
+    return serials[0] if serials else None
+
+
+def _camera_present():
+    """True if any RealSense camera is currently connected to this host."""
+    try:
+        return _resolve_serial() is not None
+    except Exception:
+        return False
+
+
 def handle(conn: socket.socket):
     global cam_proc
     try:
@@ -128,11 +185,26 @@ def handle(conn: socket.socket):
     with lock:
         if data == "open":
             _kill_viewer()
+            # Only launch the viewer if the camera is actually plugged in;
+            # otherwise tell the console so it can show "not connected".
+            if not _camera_present():
+                try:
+                    conn.sendall(b"no_camera\n")
+                except Exception:
+                    pass
+                conn.close()
+                print("[cam_daemon] open requested but no camera connected",
+                      flush=True)
+                return
             env = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":2")}
             cam_proc = subprocess.Popen(
                 [sys.executable, SCRIPT], env=env,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print(f"[cam_daemon] opened  pid={cam_proc.pid}", flush=True)
+            try:
+                conn.sendall(b"ok\n")
+            except Exception:
+                pass
             conn.close()
 
         elif data == "close":
@@ -146,8 +218,22 @@ def handle(conn: socket.socket):
             color = parts[2] if len(parts) > 2 else "orange"
             min_area = int(parts[3]) if len(parts) > 3 else 600
 
-            # Pause live viewer so the pipeline can be opened
             was_open = cam_proc is not None and cam_proc.poll() is None
+
+            # Fast path: if the live viewer is up and publishing fresh frames,
+            # answer from its shared detection — NO kill, no pipeline re-open,
+            # instant. The viewer detects the same selected colour.
+            if was_open:
+                latest = _read_latest()
+                if latest is not None:
+                    try:
+                        conn.sendall((latest + "\n").encode())
+                    except Exception:
+                        pass
+                    conn.close()
+                    return
+
+            # Slow path (viewer not up / stale): grab the camera ourselves.
             _kill_viewer()
 
             try:

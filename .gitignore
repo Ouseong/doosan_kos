@@ -38,3 +38,6 @@ Thumbs.db
 
 # 로그
 *.log
+.cam_color
+.cam_open
+.cap_*.jpg

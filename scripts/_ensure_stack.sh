@@ -65,7 +65,12 @@ ensure_stack() {
     fi
 
     echo "[4/5] ROS2 driver..."
-    if docker exec doosan_kos pgrep -f ros2_control_node > /dev/null 2>&1; then
+    # NOTE: match only the *virtual* (/dsr01) controller. A bare
+    # `pgrep -f ros2_control_node` also matches stale /dsr01_real real-robot
+    # drivers, which made this step falsely report "already running" and skip
+    # launching the sim driver → console move commands fail.
+    if docker exec doosan_kos bash -lc \
+        "pgrep -af ros2_control_node | grep -qE '__ns:=/dsr01( |\$)'" > /dev/null 2>&1; then
         echo "  ✓ 이미 실행 중"
     else
         docker exec -d doosan_kos bash -lc "

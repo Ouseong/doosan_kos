@@ -4,7 +4,7 @@
 # Started by run_jog.sh in background.
 
 FLAG="/home/oem/Desktop/doosan_kos/.cam_open"
-SCRIPT="/home/oem/Desktop/doosan_kos/scripts/d435_rgb_view.py"
+SCRIPT="/home/oem/Desktop/doosan_kos/scripts/cam/d435_rgb_view.py"
 DISPLAY="${DISPLAY:-:2}"
 cam_pid=""
 
