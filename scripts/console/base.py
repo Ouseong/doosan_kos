@@ -242,8 +242,27 @@ class RobotInterface(Node):
         self.pub_gripper.publish(msg)
 
     def gripper_recover(self):
-        """Tell the real gripper node to reboot the motor out of an overload
-        and re-home/recalibrate."""
+        """Reconnect / recover the real gripper:
+        1) if the gripper node isn't running, (re)start it — opening the serial
+           port + homing the motor IS the 'connect' step (the console runs in
+           the same container, so it can launch the node directly);
+        2) publish /gripper_recover so a running-but-overloaded node reboots and
+           re-homes the motor.
+        NOTE: a fresh node connects on its own init; the publish below is for the
+        already-running case. If the node still can't open /dev/ttyUSB0, the
+        device node is stale (adapter changed ttyUSB#) — that needs a root mknod
+        at stack boot, which the console can't do."""
+        try:
+            subprocess.Popen(
+                ['bash', '-lc',
+                 'pgrep -f gripper_node_v2.py >/dev/null 2>&1 || '
+                 '{ source /opt/ros/jazzy/setup.bash; '
+                 'source /ros2_ws/install/setup.bash; '
+                 'nohup python3 /kos_workspace/Dynamixel_Control/gripper_node_v2.py '
+                 '> /tmp/gripper_node.log 2>&1 & }'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            self.get_logger().warn(f"gripper node (re)start failed: {e}")
         self.pub_gripper_recover.publish(Empty())
 
     def _on_js(self, msg: JointState):

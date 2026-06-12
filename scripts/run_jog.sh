@@ -115,6 +115,15 @@ print('yes' if '043322073704' in serials else 'no')
     fi
 fi
 
+# ── 카메라 데몬 watchdog (Open Camera 항상 동작하게 데몬 상시 유지) ──────────
+pkill -f cam_watchdog.sh 2>/dev/null
+nohup "$proj_root/scripts/cam/cam_watchdog.sh" > /tmp/cam_watchdog.log 2>&1 &
+disown
+echo "[cam] watchdog 시작 — Open Camera 상시 동작"
+
+# ── Dynamixel 그리퍼 연결 (어댑터 ttyUSB# 자동대응 + 노드 기동) ──────────────
+bash "$proj_root/scripts/ensure_gripper.sh" || echo "[gripper] 연결 건너뜀"
+
 echo ""
 echo "✓ 스택 + Control Console 모두 부팅됨."
 echo "  홈에서 3개 모드 중 선택. 각 모드 화면에서 ← Home 으로 복귀."

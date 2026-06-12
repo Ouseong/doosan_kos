@@ -127,6 +127,11 @@ class GripperNode(Node):
         self.pkt.write4ByteTxRx(self.port, DXL_ID, ADDR_PROFILE_VELOCITY, self.prof_vel)
         self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 1)
 
+        # Home to the open stop on startup — the default open/close ticks are
+        # only valid relative to a known reference, which a power-cycle resets.
+        # Without this, the very first Close drives the wrong way / overloads.
+        self._home('ready')
+
         self.get_logger().info(
             f'XM430 ID={DXL_ID} ready on {DEVICE} '
             f'(extended-position mode, open={self.open_ticks}, close={self.close_ticks})')
@@ -173,6 +178,46 @@ class GripperNode(Node):
             f'cmd {msg.data*1000:.1f}mm -> goal_position {ticks}'
             + ('  [grasp: stop on torque]' if self._grasping else ''))
 
+    def _home(self, label='homed'):
+        """Feel toward the OPEN mechanical stop and recalibrate open/close ticks
+        relative to it. The extended-position zero is arbitrary after any
+        power-cycle/reboot, so trusting the fixed default ticks drives the wrong
+        way or into a hard-stop (overload) — the exact "Close does nothing /
+        then overload" symptom. Homing to the real stop makes open/close correct
+        on every start AND after every recover."""
+        # slow speed while feeling for the stop
+        self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 0)
+        self.pkt.write4ByteTxRx(self.port, DXL_ID, ADDR_PROFILE_VELOCITY,
+                                HOMING_PROFILE_VELOCITY)
+        self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 1)
+        time.sleep(0.3)
+
+        # Feel toward OPEN (increasing ticks) until the load rises at the stop.
+        start = self._read_pos()
+        stop_pos = start
+        for step in range(1, HOMING_MAX_STEPS + 1):
+            self._set_goal(start + step * HOMING_STEP_TICKS)
+            time.sleep(0.22)
+            stop_pos = self._read_pos()
+            load = abs(self._read_load())
+            hwerr = self.pkt.read1ByteTxRx(self.port, DXL_ID, ADDR_HARDWARE_ERROR)[0]
+            if hwerr == HW_ERR_OVERLOAD or load > HOMING_LOAD_LIMIT:
+                break
+
+        # open just shy of the stop, close one span below it
+        self.open_ticks  = stop_pos - HOMING_BACKOFF_TICKS
+        self.close_ticks = self.open_ticks - self.span
+        # restore normal speed, clear overload, park at open
+        self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 0)
+        self.pkt.write4ByteTxRx(self.port, DXL_ID, ADDR_PROFILE_VELOCITY,
+                                self.prof_vel)
+        self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 1)
+        self._set_goal(self.open_ticks)
+        self._overload = False
+        self.get_logger().info(
+            f'gripper {label}: open={self.open_ticks}, '
+            f'close={self.close_ticks} (span {self.span})')
+
     def _recover_cb(self, _msg: Empty):
         """Reboot the motor out of an overload, then re-home to the open
         hard-stop and recalibrate (a reboot resets the extended-position
@@ -185,41 +230,12 @@ class GripperNode(Node):
         try:
             self.pkt.reboot(self.port, DXL_ID)
             time.sleep(2.0)
-            # re-init in extended-position mode at a slow homing speed
+            # re-init in extended-position mode, then home to the open stop
             self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 0)
             self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_OPERATING_MODE, 4)
-            self.pkt.write4ByteTxRx(self.port, DXL_ID, ADDR_PROFILE_VELOCITY,
-                                    HOMING_PROFILE_VELOCITY)
             self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 1)
             time.sleep(0.3)
-
-            # Feel toward OPEN (open_ticks > close_ticks → increasing direction)
-            # until the load rises at the mechanical stop.
-            start = self._read_pos()
-            stop_pos = start
-            for step in range(1, HOMING_MAX_STEPS + 1):
-                self._set_goal(start + step * HOMING_STEP_TICKS)
-                time.sleep(0.22)
-                p = self._read_pos()
-                load = abs(self._read_load())
-                hwerr = self.pkt.read1ByteTxRx(self.port, DXL_ID, ADDR_HARDWARE_ERROR)[0]
-                stop_pos = p
-                if hwerr == HW_ERR_OVERLOAD or load > HOMING_LOAD_LIMIT:
-                    break
-
-            # Calibrate: open just shy of the stop, close one span below it.
-            self.open_ticks  = stop_pos - HOMING_BACKOFF_TICKS
-            self.close_ticks = self.open_ticks - self.span
-            # restore normal speed, clear flags, park at open
-            self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 0)
-            self.pkt.write4ByteTxRx(self.port, DXL_ID, ADDR_PROFILE_VELOCITY,
-                                    self.prof_vel)
-            self.pkt.write1ByteTxRx(self.port, DXL_ID, ADDR_TORQUE_ENABLE, 1)
-            self._set_goal(self.open_ticks)
-            self._overload = False
-            self.get_logger().info(
-                f'gripper recovered: open={self.open_ticks}, '
-                f'close={self.close_ticks} (span {self.span})')
+            self._home('recovered')
         except Exception as e:
             self.get_logger().error(f'recover failed: {e}')
         finally:
