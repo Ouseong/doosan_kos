@@ -56,6 +56,15 @@ ensure_stack() {
         bash "$proj_root/docker/container.sh" start
     fi
 
+    # Dynamixel gripper serial: the FT232H adapter's host /dev/ttyUSB* node is
+    # created at plug-time and its name/minor CHANGES on every re-plug, but the
+    # container's /dev is fixed at container-start — so the container never sees
+    # the live node and the gripper node can't open the port (Open/Close dead).
+    # Always (re)map container /dev/ttyUSB0 → whatever the live host node is.
+    # (Re-plugging the adapter AFTER boot still needs scripts/fix_gripper_serial.sh.)
+    echo "[2b] gripper serial (/dev/ttyUSB0)..."
+    bash "$proj_root/scripts/fix_gripper_serial.sh" --map-only 2>&1 | sed 's/^/  /'
+
     echo "[3/5] emulator..."
     if docker ps --format '{{.Names}}' | grep -q '^emulator$' && \
        ss -tln 2>/dev/null | grep -q ':12345'; then

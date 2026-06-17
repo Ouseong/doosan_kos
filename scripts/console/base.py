@@ -32,7 +32,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32, Empty
-from dsr_msgs2.msg import SpeedjStream
+from dsr_msgs2.msg import SpeedjStream, SpeedlStream
 from dsr_msgs2.srv import (
     MoveJoint,
     MoveJointx,
@@ -60,6 +60,7 @@ ROBOT_STATE_READY = {1, 2, 7}  # STANDBY, MOVING, HOMING
 
 # ──────── Workspace safety limits ──────────────────────────
 TCP_Z_MIN_MM = 28.9          # finger-tip floor set to the user's taught position (TCP Z=187mm @ real posx 2026-06-04); tip can't go below this
+SPEEDL_MAX_LIN_MMS = 250.0   # per-axis hard clamp on joystick task-velocity (runaway guard)
 COLLISION_SENSITIVITY = 50   # 0-100 ; controller-side reactive stop threshold
 SINGULARITY_MODE = 0         # 0=AVOID, 1=TASK_STOP, 2=VAR_VEL
 
@@ -187,6 +188,11 @@ class RobotInterface(Node):
         self.create_subscription(JointState, f"/{ROBOT_ID}/joint_states", self._on_js, 10)
         self.joint_pos_deg = [0.0] * 6
         self.joint_vel_deg = [0.0] * 6
+        # Real robot joint_states (separate namespace) — used by the joystick
+        # floor watchdog so real-mode teleop checks the REAL pose, not sim.
+        self.joint_pos_deg_real = None
+        self.create_subscription(
+            JointState, f"/{REAL_ROBOT_ID}/joint_states", self._on_js_real, 10)
 
         # service clients
         self.cli_movej = self.create_client(MoveJoint, f"{SVC}/motion/move_joint")
@@ -236,6 +242,20 @@ class RobotInterface(Node):
         self._speedj_target = [0.0] * 6
         self._speedj_acc = 30.0
 
+        # speedl publishers — task-space velocity stream (BASE frame), mirror of
+        # speedj. One per namespace: sim (/dsr01) and real (/dsr01_real). The
+        # joystick teleop drives the real controller ONLY when target_mode is
+        # 'real' (sim/preview stay on sim), resolved at speedl_start().
+        self.pub_speedl = self.create_publisher(SpeedlStream, f"{SVC}/speedl_stream", 10)
+        self.pub_speedl_real = self.create_publisher(
+            SpeedlStream, f"/{REAL_ROBOT_ID}/dsr_controller2/speedl_stream", 10)
+        self._speedl_pub = self.pub_speedl     # active publisher (set on start)
+        self._speedl_running = False
+        self._speedl_thread = None
+        self._speedl_target = [0.0] * 6        # [vx,vy,vz, wx,wy,wz]  mm/s & deg/s
+        self._speedl_acc = [400.0, 80.0]       # [linear mm/s^2, angular deg/s^2]
+        self._speedl_floor_block = False       # set by watchdog when tip below floor
+
     def gripper_set(self, opening_m: float):
         msg = Float32()
         msg.data = float(max(0.0, min(0.067, opening_m)))
@@ -270,6 +290,18 @@ class RobotInterface(Node):
             self.joint_pos_deg = [math.degrees(p) for p in msg.position[:6]]
         if len(msg.velocity) >= 6:
             self.joint_vel_deg = [math.degrees(v) for v in msg.velocity[:6]]
+
+    def _on_js_real(self, msg: JointState):
+        if len(msg.position) >= 6:
+            self.joint_pos_deg_real = [math.degrees(p) for p in msg.position[:6]]
+
+    def _active_joint_pos_deg(self):
+        """Joints to use for live workspace/floor checks: the real robot's in
+        'real' mode (if its joint_states are arriving), otherwise sim."""
+        if (self.target_mode == "real" and self.real_driver_started
+                and self.joint_pos_deg_real is not None):
+            return self.joint_pos_deg_real
+        return self.joint_pos_deg
 
     def _wait(self, future, timeout):
         deadline = time.time() + timeout
@@ -580,6 +612,80 @@ class RobotInterface(Node):
         msg.time = 0.0
         for _ in range(3):
             self.pub_speedj.publish(msg)
+            time.sleep(0.02)
+
+    # ── speedl continuous stream (task-space velocity, BASE frame) ──
+    # Mirror of the speedj stream but commands TCP linear/angular velocity.
+    # Used by the joystick teleop on the Task Space screen. Translation-only
+    # for the joystick (rotation components stay 0), but the full 6-vector is
+    # supported. Goes to the SIM controller only, like speedj.
+    def speedl_set_target(self, vel, acc_lin=400.0, acc_ang=80.0):
+        """vel = [vx,vy,vz, wx,wy,wz] in mm/s (linear) and deg/s (angular),
+        BASE frame. The linear part is clamped per-axis as a runaway guard."""
+        v = list(vel[:6]) + [0.0] * max(0, 6 - len(vel))
+        for i in range(3):
+            v[i] = max(-SPEEDL_MAX_LIN_MMS, min(SPEEDL_MAX_LIN_MMS, v[i]))
+        self._speedl_target = v
+        self._speedl_acc = [float(acc_lin), float(acc_ang)]
+
+    def _speedl_resolve_pub(self):
+        """Real controller only in explicit 'real' mode (and only if its driver
+        is up); sim/preview stay on sim. Strict on purpose — the joystick must
+        not drive the real robot unless the operator is in REAL mode."""
+        if self.target_mode == "real" and self.real_driver_started:
+            return self.pub_speedl_real
+        return self.pub_speedl
+
+    def speedl_start(self):
+        if self._speedl_running:
+            return
+        self._speedl_pub = self._speedl_resolve_pub()
+        self._speedl_running = True
+
+        def publish_loop():
+            while self._speedl_running:
+                safe = list(self._speedl_target)
+                # Floor guard: when the gripper tip is below the floor margin,
+                # block further downward (−Z) motion but keep +Z / XY so the
+                # operator can recover without disarming.
+                if self._speedl_floor_block and safe[2] < 0:
+                    safe[2] = 0.0
+                msg = SpeedlStream()
+                msg.vel = safe
+                msg.acc = list(self._speedl_acc)
+                msg.time = 0.05
+                self._speedl_pub.publish(msg)
+                time.sleep(0.05)
+
+        # Floor watchdog: live jog bypasses pre-flight workspace checks, so poll
+        # fkin while streaming and flag when the gripper tip would cross the
+        # floor. The publish loop then zeroes only the downward component.
+        def floor_watchdog():
+            self._speedl_floor_block = False
+            while self._speedl_running:
+                time.sleep(0.15)
+                if not self._speedl_running:
+                    break
+                try:
+                    ok, _why = self._fkin_check(self._active_joint_pos_deg(), ref=0)
+                except Exception:
+                    continue
+                self._speedl_floor_block = not ok
+
+        self._speedl_thread = threading.Thread(target=publish_loop, daemon=True)
+        self._speedl_thread.start()
+        threading.Thread(target=floor_watchdog, daemon=True).start()
+
+    def speedl_stop(self):
+        self._speedl_running = False
+        self._speedl_floor_block = False
+        msg = SpeedlStream()
+        msg.vel = [0.0] * 6
+        msg.acc = list(self._speedl_acc)
+        msg.time = 0.0
+        # stop the publisher that was actually streaming (sim or real)
+        for _ in range(3):
+            self._speedl_pub.publish(msg)
             time.sleep(0.02)
 
     # ── real-robot driver management ──
