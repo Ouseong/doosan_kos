@@ -1,0 +1,102 @@
+{
+  "grasp_method": "friction (pin springs + jaw force)",
+  "physics": "PhysX (Isaac Sim 5.1), dt=1/240",
+  "robot_drive": {
+    "stiffness": 20000.0,
+    "damping": 2000.0
+  },
+  "jaw_drive": {
+    "stiffness": 200000.0,
+    "damping": 2000.0,
+    "max_force": 150.0
+  },
+  "pin_drive": {
+    "stiffness": 300.0,
+    "damping": 2.0
+  },
+  "pin_stroke_m": 0.012,
+  "plate_mass_kg": 4.05,
+  "plate_density_candidate": 2700,
+  "ik": {
+    "pre_grasp": {
+      "q_deg": [
+        -88.12,
+        39.32,
+        48.94,
+        0.02,
+        91.72,
+        1.87
+      ],
+      "pos_err_mm": 1.292632550181697e-06,
+      "rot_err_deg": 0.0
+    },
+    "grasp": {
+      "q_deg": [
+        -88.12,
+        40.92,
+        61.68,
+        0.02,
+        77.39,
+        1.87
+      ],
+      "pos_err_mm": 9.084636554987953e-09,
+      "rot_err_deg": 0.0
+    },
+    "lift": {
+      "q_deg": [
+        -88.12,
+        41.13,
+        35.47,
+        0.02,
+        103.39,
+        1.87
+      ],
+      "pos_err_mm": 2.089655704394669e-12,
+      "rot_err_deg": 0.0
+    },
+    "transit": {
+      "q_deg": [
+        -1.28,
+        45.88,
+        -0.01,
+        0.04,
+        133.92,
+        -1.26
+      ],
+      "pos_err_mm": 3.7077488105434604,
+      "rot_err_deg": 0.20582311804920392
+    },
+    "over_furnace": {
+      "q_deg": [
+        -1.27,
+        32.9,
+        33.59,
+        0.03,
+        113.49,
+        -1.27
+      ],
+      "pos_err_mm": 3.477668473608929e-12,
+      "rot_err_deg": 0.0
+    }
+  },
+  "articulation_dofs": 58,
+  "plate_z_rack": 0.903,
+  "plate_z_end": 0.8999999761581421,
+  "plate_lifted": false,
+  "plate_in_S_after_close_mm": [
+    -0.05,
+    15.62,
+    -279.76
+  ],
+  "plate_in_S_at_hold_mm": [
+    799.93,
+    965.66,
+    -676.94
+  ],
+  "slip_during_transport_mm": 1303.949626125032,
+  "pins_pressed_at_hold": {
+    "p": 0,
+    "n": 0
+  },
+  "note": "pin displacement = prismatic joint position (simulation ground truth). gt_* columns for evaluation only"
+}

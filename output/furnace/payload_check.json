@@ -1,0 +1,52 @@
+{
+  "assumptions": {
+    "gripper_mass_kg": 1.2,
+    "mu": 0.3,
+    "pins_pressed_per_jaw": 15,
+    "note": "gripper mass and mu are [assumed]"
+  },
+  "candidates": [
+    {
+      "density_candidate": 2700,
+      "plate_mass_kg": 4.05,
+      "gripper_mass_kg_assumed": 1.2,
+      "total_payload_kg": 5.25,
+      "payload_limit_kg": 10.0,
+      "payload_exceeded": false,
+      "lever_m": 0.15,
+      "plate_torque_horizontal_Nm": 5.96,
+      "wrist_effort_limit_Nm": 50.0,
+      "normal_force_per_jaw_needed_N": 66.2,
+      "pin_k_min_at_4mm_N_per_m": 1104.0,
+      "flag": "ok"
+    },
+    {
+      "density_candidate": 7140,
+      "plate_mass_kg": 10.71,
+      "gripper_mass_kg_assumed": 1.2,
+      "total_payload_kg": 11.91,
+      "payload_limit_kg": 10.0,
+      "payload_exceeded": true,
+      "lever_m": 0.15,
+      "plate_torque_horizontal_Nm": 15.76,
+      "wrist_effort_limit_Nm": 50.0,
+      "normal_force_per_jaw_needed_N": 175.1,
+      "pin_k_min_at_4mm_N_per_m": 2918.0,
+      "flag": "ROBOT_INFEASIBLE(payload)"
+    },
+    {
+      "density_candidate": 7870,
+      "plate_mass_kg": 11.805,
+      "gripper_mass_kg_assumed": 1.2,
+      "total_payload_kg": 13.005,
+      "payload_limit_kg": 10.0,
+      "payload_exceeded": true,
+      "lever_m": 0.15,
+      "plate_torque_horizontal_Nm": 17.37,
+      "wrist_effort_limit_Nm": 50.0,
+      "normal_force_per_jaw_needed_N": 193.0,
+      "pin_k_min_at_4mm_N_per_m": 3217.0,
+      "flag": "ROBOT_INFEASIBLE(payload)"
+    }
+  ]
+}

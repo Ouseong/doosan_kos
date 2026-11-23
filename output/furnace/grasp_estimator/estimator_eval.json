@@ -1,0 +1,185 @@
+{
+  "jacobian": {
+    "small": {
+      "column_norm": {
+        "dx": 5.477225575051675,
+        "dy": 0.0,
+        "dz": 0.0,
+        "rx": 0.0,
+        "ry": 0.0848528420266681,
+        "rz": 0.09295163129285698
+      },
+      "singular_values": [
+        5.47762,
+        0.092952,
+        0.053662,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rank(>1e-6)": 3
+    },
+    "large": {
+      "column_norm": {
+        "dx": 5.477225575051661,
+        "dy": 0.0,
+        "dz": 0.0,
+        "rx": 0.0,
+        "ry": 0.08486412926137114,
+        "rz": 0.09296399583897445
+      },
+      "singular_values": [
+        5.47762,
+        0.092964,
+        0.053669,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rank(>1e-6)": 3
+    }
+  },
+  "synthetic": {
+    "N": 500,
+    "noise_mm": 0.1,
+    "error_ranges": "dx\u00b12mm dy\u00b120mm dz\u00b18mm rx,ry,rz\u00b13deg",
+    "table": {
+      "dx": {
+        "unit": "mm",
+        "true_range": [
+          -1.9968144656102942,
+          1.9876578095769752
+        ],
+        "rmse": 0.3576585896087467,
+        "max_abs": 1.2247788696298674,
+        "flagged_observable_frac": 1.0,
+        "prior_rmse(if_ignored)": 1.192391457199952
+      },
+      "dy": {
+        "unit": "mm",
+        "true_range": [
+          -19.936815255864357,
+          19.998752009305775
+        ],
+        "rmse": 11.33617831824912,
+        "max_abs": 19.998752009305775,
+        "flagged_observable_frac": 0.0,
+        "prior_rmse(if_ignored)": 11.33617831824912
+      },
+      "dz": {
+        "unit": "mm",
+        "true_range": [
+          -7.961344727438183,
+          7.984198861964116
+        ],
+        "rmse": 3.362828676234995,
+        "max_abs": 6.228139537246168,
+        "flagged_observable_frac": 1.0,
+        "prior_rmse(if_ignored)": 4.663776424320415
+      },
+      "rx": {
+        "unit": "deg",
+        "true_range": [
+          -2.9995236682922304,
+          2.9868124992820526
+        ],
+        "rmse": 1.7214655732779744,
+        "max_abs": 2.9995236682922304,
+        "flagged_observable_frac": 0.0,
+        "prior_rmse(if_ignored)": 1.7214655732779744
+      },
+      "ry": {
+        "unit": "deg",
+        "true_range": [
+          -2.986625954982718,
+          2.996628967879616
+        ],
+        "rmse": 0.1260054683636683,
+        "max_abs": 0.5443306969255313,
+        "flagged_observable_frac": 1.0,
+        "prior_rmse(if_ignored)": 1.7592514763293052
+      },
+      "rz": {
+        "unit": "deg",
+        "true_range": [
+          -2.9713172301621,
+          2.97292750504528
+        ],
+        "rmse": 0.06002328134661853,
+        "max_abs": 0.2214804349791652,
+        "flagged_observable_frac": 1.0,
+        "prior_rmse(if_ignored)": 1.7200740977695046
+      }
+    }
+  },
+  "physics_phase4": {
+    "source": "output/furnace/robot_charge_demo/friction_k5000/log.csv",
+    "rows": [
+      {
+        "phase": "close",
+        "pins_p": 15,
+        "pins_n": 15,
+        "jaw_shift_p_mm": 2.975523978471756,
+        "jaw_shift_n_mm": 3.0609579235315323,
+        "est_dx_mm": -0.025403255131095648,
+        "gt_dx_mm": -0.025388869399179444,
+        "est_dz_mm": 0.0,
+        "gt_dz_mm": -3.0187944793320654,
+        "est_dy_mm(prior)": 0.0,
+        "gt_dy_mm": -0.035447910944765015,
+        "est_ry_deg": 0.00024757212372272385,
+        "est_rz_deg": 6.553379745638792e-05,
+        "est_thickness_mm": 9.919358499348164
+      },
+      {
+        "phase": "lift",
+        "pins_p": 15,
+        "pins_n": 15,
+        "jaw_shift_p_mm": 2.66549414396286,
+        "jaw_shift_n_mm": 3.374221310019493,
+        "est_dx_mm": -0.30849985390280676,
+        "gt_dx_mm": -0.31120525836819085,
+        "est_dz_mm": 0.0,
+        "gt_dz_mm": -3.0192317845359473,
+        "est_dy_mm(prior)": 0.0,
+        "gt_dy_mm": -0.036581924078876726,
+        "est_ry_deg": 0.0011933376568180386,
+        "est_rz_deg": 0.0006170682378577855,
+        "est_thickness_mm": 9.919183294288814
+      },
+      {
+        "phase": "transit",
+        "pins_p": 15,
+        "pins_n": 15,
+        "jaw_shift_p_mm": 3.248239442706108,
+        "jaw_shift_n_mm": 2.793387085199356,
+        "est_dx_mm": 0.21276355255395168,
+        "gt_dx_mm": 0.2039204558868843,
+        "est_dz_mm": 0.0,
+        "gt_dz_mm": -4.063079861559016,
+        "est_dy_mm(prior)": 0.0,
+        "gt_dy_mm": -2.4780756124852097,
+        "est_ry_deg": 0.002781990296960389,
+        "est_rz_deg": 0.0032712055593862917,
+        "est_thickness_mm": 9.920331498607993
+      },
+      {
+        "phase": "hold",
+        "pins_p": 15,
+        "pins_n": 15,
+        "jaw_shift_p_mm": 3.5363124161958694,
+        "jaw_shift_n_mm": 2.510486677289009,
+        "est_dx_mm": 0.4685390449594706,
+        "gt_dx_mm": 0.4965995718126066,
+        "est_dz_mm": 0.0,
+        "gt_dz_mm": -4.0660649320468085,
+        "est_dy_mm(prior)": 0.0,
+        "gt_dy_mm": -2.4701158976435464,
+        "est_ry_deg": -0.009584637397871914,
+        "est_rz_deg": -0.0006052010065131681,
+        "est_thickness_mm": 9.920431033708155
+      }
+    ],
+    "note": "GT = plate centre in gripper frame minus nominal; rotations GT not logged (small)"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "preset": "dark_foundry",
+  "renderer": "RTX RayTracedLighting (real-time)",
+  "shots": {
+    "overview": "output/furnace/scene_preview/dark_foundry_overview.png",
+    "three_quarter": "output/furnace/scene_preview/dark_foundry_three_quarter.png",
+    "melt_side": "output/furnace/scene_preview/dark_foundry_melt_side.png",
+    "contact": "output/furnace/scene_preview/dark_foundry_contact.png"
+  },
+  "ik": {
+    "q_deg": [
+      -4.37,
+      10.24,
+      91.79,
+      17.2,
+      13.6,
+      161.41
+    ],
+    "pos_err_mm": 4.992256878507948e-08,
+    "rot_err_deg": 0.0
+  },
+  "plate_center_world": [
+    1.0491,
+    -0.0001,
+    1.297
+  ],
+  "plate_mass_kg": 4.05,
+  "furnace": {
+    "R": 0.4,
+    "rim_z": 1.0,
+    "melt_z": 0.75,
+    "floor_z": 0.30000000000000004,
+    "hood_z": 2.35,
+    "frame_half": 1.15
+  },
+  "gripper_grasp_center_world": [
+    0.914,
+    -0.0,
+    1.361
+  ],
+  "cameras": {
+    "overview": {
+      "eye": [
+        -4.8,
+        -5.2,
+        4.6
+      ],
+      "target": [
+        1.2,
+        0.3,
+        0.9
+      ]
+    },
+    "three_quarter": {
+      "eye": [
+        -0.9,
+        -2.7,
+        2.35
+      ],
+      "target": [
+        0.75,
+        0.0,
+        1.05
+      ]
+    },
+    "melt_side": {
+      "eye": [
+        1.35,
+        -1.25,
+        1.85
+      ],
+      "target": [
+        1.15,
+        0.0,
+        0.85
+      ]
+    },
+    "contact": {
+      "eye": [
+        0.814,
+        -0.33,
+        1.381
+      ],
+      "target": [
+        0.954,
+        -0.0,
+        1.301
+      ]
+    }
+  },
+  "exposure_default": {
+    "/rtx/post/histogram/enabled": false,
+    "/rtx/post/tonemap/filmIso": 100.0,
+    "/rtx/post/tonemap/exposureTime": 0.019999999552965164,
+    "/rtx/post/tonemap/fNumber": 5.0,
+    "/rtx/post/tonemap/op": 6
+  },
+  "exposure_used": {
+    "/rtx/post/histogram/enabled": false,
+    "/rtx/post/tonemap/filmIso": 100.0,
+    "/rtx/post/tonemap/exposureTime": 0.02,
+    "/rtx/post/tonemap/fNumber": 5.0,
+    "/rtx/post/tonemap/op": 6
+  },
+  "note": "static preview (no physics stepping of plate); NOT a physics result"
+}

@@ -126,6 +126,7 @@ git fetch origin && git switch furnace-charging && git pull
 
 - G.y 미끄러짐은 판 무게중심의 옆 방향 위치를 바꾸므로 release 자세에 영향을 준다. 추정기는 이 값을 **추정하지 않고** "unobservable" 플래그 + 사전값(파지 명령 위치, 즉 픽업 시 의도한 위치)을 쓰고, 불확실성을 그대로 결과에 남긴다. 카메라 보조가 필요한 이유로 문서화한다.
 - 위 표는 가설이다. Phase 5 에서 합성 데이터로 실제 식별 가능성(야코비안 rank / 섭동 실험)을 확인해 표를 고친다.
+- **Phase 5 결과 (2026-11-23, `output/furnace/grasp_estimator/estimator_eval.json`)**: 명목 파지에서 핀 변위 야코비안 rank 3 (dx, ry, rz). dy·rx 열은 0, dz 는 행 경계에서만 변함(양자화). 합성 500 건(오차 dx±2 mm, dy±20 mm, dz±8 mm, 회전 ±3°, 핀 잡음 0.1 mm) RMSE: dx 0.36 mm (보정 안 하면 1.19), ry 0.13° (1.76), rz 0.06° (1.72), dz 3.4 mm (4.7, 12 mm 피치 양자화), rx 는 경계선 기울기로 추정하면 사전값보다 나빠서(3.5° vs 1.7°) **관측 불가로 변경**, dy 관측 불가 (11.3 mm = 사전값). dx 는 판이 기울면 관측 불가 dy 와 tan(rz)·dy 만큼 섞인다. Phase 4 물리 로그: dx 추정 0.47 mm vs GT 0.50 mm, 두께 9.92 mm vs 10 mm, dz 0 vs GT −4 mm (양자화 범위 안).
 
 ---
 
@@ -301,16 +302,18 @@ Newton 단독 경로를 쓰게 되면 `fluid_plate_test` / `evaluate` 의 유체
 | gripper.pins_per_jaw | 5×5 | 확인 (실물) |
 | gripper.pin_pitch_m | 0.012 | 확인 (STL 실측) |
 | gripper.pin_stroke_m | 0.012 | 확인 (스프링 행정; 논문 12.5 mm) |
-| gripper.pin_spring_k / damping | — | **[가정] 미정** |
+| gripper.pin_spring_k / damping | 5000 N/m / 2 N·s/m | **[가정]** Phase 4 물리: 300·1500 N/m 은 4 kg 판을 못 듦, 3000 은 이송 중 미끄러짐, 5000 에서 이송 성공 |
 | gripper.max_opening_m | 0.067 | 확인 (명령 규약) |
-| gripper.mass_kg | — | **[가정] 실측 요청** |
+| gripper.mass_kg | 1.2 | **[가정] 실측 요청** |
 | gripper.mount_spacer | Ø0.080 × 0.035 m | 확인 (2026-10-26 실측) |
 | base.size_m | [0.85, 0.60, 0.825] | 판매 페이지 |
 | base.robot_mount_xy | 상판 중앙 | **[가정]** |
 | furnace.crucible_inner_d_m | 0.80 | **[가정]** |
 | furnace.crucible_depth_m | 0.70 | **[가정]** |
 | furnace.melt_depth_m | 0.45 | **[가정]** |
-| furnace.rim_height_from_floor_m | 1.0 | **[가정]** 도달성 확인 후 조정 |
+| furnace.rim_height_from_floor_m | 1.0 | **[가정]** 도달성: 판 중심이 도가니 중심에서 로봇 쪽 ≥0.25 m, 판 하단 rim 위 ≤0.15 m 일 때 IK 해 있음 (Phase 4) |
+| layout.furnace_xy | (1.15, 0) | **[가정]** Mobile Base 앞 모서리에서 하우징까지 ≈5 cm |
+| grasp.insert_depth_m | 0.030 | **[가정]** 핀 3 행이 닿음 |
 | fluid.density / viscosity | 설정값 | **[가정]** 실제 용탕 아님 |
 | grasp.edge | 긴 변 중앙 | **[가정]** |
 
@@ -334,3 +337,6 @@ Newton 단독 경로를 쓰게 되면 `fluid_plate_test` / `evaluate` 의 유체
 | 2026-11-23 | 0 | x86_64·A6000·드라이버 580.65.06·디스크 여유 54 GB. Isaac Sim 5.1.0-rc.19, Isaac Lab·Newton 미설치. Isaac Lab MPM 은 main(3.0)=Isaac Sim 6.2 전용, 5.1 미지원(v2.3 문서 MPM 없음) → Newton 1.8.0 별도 venv 채택, 공식 MPM 예제 2개 실행 성공. M1013: 공식 m1013.usd 없음 → URDF(doosan-robot2 jazzy 816ecb5) 변환, joint 6·한계 URDF 와 일치·link_6 확인 (importer 가 drive stiffness 를 625 로 넣음, 1e7 설정 무시). 최소 판-액체(양방향): 판 진입 후 감속(+6.8 m/s²), 관통 없음, 액체 밀어냄 | 수치 누수 1.4 %(판 없음 대조에서도) → splash 판정 불가 상태. 판 두께/dx=0.4. reset·sweep 미시험. Isaac Sim 6.0 이미지의 Newton 확장 미실행. §8 답 없음 | `isaac/furnace/assets/build_m1013.py`, `isaac/furnace/sim/newton_plate_drop_min.py`, `plot_newton_min.py`, `output/furnace/phase0/` (m1013_check.json, m1013_home.png, newton_min*/result.json·timeseries.csv, side_view.png), VERSIONS.md | Phase 1: 누수 원인(바닥·벽 모서리, 벽 두께 vs dx) 제거, dx sweep(25/12.5 mm), reset 재현성, 원통 용기 |
 | 2026-11-23 | 1 | 원통 도가니(내경 0.8 m, 벽=convex 박스 32 조각+바닥 박스)로 바꾸자 판 없는 대조의 탈출 0 % (Phase 0 누수 1.4 % 는 ground plane–박스 이음새 문제). Newton 기본 strain_basis P0 은 물이 1.5 s 에 36 % 압축됨 → `pic8` 로 1.6 % (3 s 에 1.8 %). dx 가 작을수록 미수렴 → 바닥 관통: dx 18 mm 는 150 회, 12.5 mm 는 400 회 반복 필요. solver 를 reset 때 새로 만들어야 reset 재현 (재사용 시 2.4 cm 차이). SPEC §13 1–7 통과: 탈출 0, 판 관통 0, 회전 25°, 유체 운동에너지 0.03→4.4 J(free)/24.7 J(kinematic), 진입 후 0.15 s 유체 충격량/무게 2.2, reset 차이 0.3 mm = 새 객체끼리 차이 | 판(밀도 2700)이 액면 근처에서 거의 가라앉지 않음 (1.5 s 에 3–8 cm, 단순 종단속도 추정은 ≈0.5 m/s) — 판이 격자보다 얇아(두께/dx 0.4–0.8) 생기는 수치 저항으로 보임. 해상도가 작을수록 더 가라앉음(최종 z 0.42→0.37 m) = 진입 후 운동은 해상도 수렴 안 됨. 투입 0.3 m 에서는 rim 넘침·탈출 0 | `isaac/furnace/sim/fluid_backend.py`, `run_fluid_plate_test.py`, `config/{default,fluid_low,fluid_high}.yaml`, `output/furnace/fluid_plate_test/phase1_suite/` (suite_result.json, sweep.csv, timeseries, side_view.png) | Phase 6 비교는 dx 25 mm·같은 설정 안에서 상대비교만. 진입 후 침강은 결론에 쓰지 않음 |
 | 2026-11-23 | 2 | 영역: inside / penetrated(벽·바닥 두께 안, 수치 관통) / outside 분리. 고유 입자 1 회 집계, final vs cumulative 구분, baseline 차감은 원값과 함께 저장 | — | `isaac/furnace/sim/splash_metrics.py`, `tests/test_splash_metrics.py` (pytest 7 통과) | — |
+| 2026-11-23 | 3 | NVIDIA PhysicalAI_SceneAssembly.zip 다운로드: LICENSE 없음, 강좌 페이지에도 자산 라이선스 없음, 내용은 PCB 조립 라인 → 사용 안 함. 공장·용해로·Mobile Base·텍스처 전부 절차적 생성. RTX 자동 노출 키 `/rtx/post/histogram/enabled` 확인·고정 노출 사용. 참조 레이어의 재질을 default prim 밖(/World/Looks)에 두면 reference 시 재질이 빠짐 → default prim 아래로. 카메라 기본 near clip 1 m 라 그리퍼가 잘림 → 0.01 m | 판(밀도 2700) 외의 재질값·조명 강도는 미적 조정값. Fab·Sketchfab·GrabCAD 후보는 확인 안 함 | `isaac/furnace/assets/build_{factory,furnace,mobile_base,plate,pin_gripper}.py`, `usd_util.py`, `sim/{lighting,cameras}.py`, `run_scene_preview.py`, `output/furnace/scene_preview/dark_foundry_{overview,three_quarter,contact,melt_side}.png` (실제 RTX 렌더, 정지 장면) | — |
+| 2026-11-23 | 4 | M1013 + 핀 그리퍼(jaw 2 + 핀 50 prismatic 스프링)가 한 articulation 58 dof 로 PhysX 에서 안정. 마찰 파지: 핀 k=300/1500 N/m 들지 못함, 3000 들었지만 이송 중 미끄러져 낙하, 5000 에서 랙→용해로 위 이송 성공(이송 중 미끄러짐 2.7 mm, 대부분 가장자리 방향 y). 로봇 drive stiffness 를 importer 기본 625 → 2e4 로 올림. 도달성: 용해로 위 판 중심 offset ≥0.25 m. payload: 밀도 7140·7870 후보는 판+그리퍼 11.9·13.0 kg > 10 kg (플래그) | 핀 스프링·그리퍼 질량·마찰계수는 가정. fixed joint 대안은 필요 없어서 안 씀. jaw 를 여는 순간의 판 교란은 모델링 안 함 | `isaac/furnace/run_robot_charge_demo.py`, `sim/{m1013_kinematics,grasp_geometry,payload_check}.py`, `output/furnace/robot_charge_demo/friction_k{300,1500,3000,5000}/` (log.csv 핀 변위 50 개, result.json, 대표 프레임 PNG), `output/furnace/payload_check.json` | Phase 5 추정기를 이 로그로 검증 |
+| 2026-11-23 | 5 | §2.3 결과 참조. 추정기 입력에 판 GT 없음(테스트로 확인). 기하 핀 모델의 접촉 규칙을 물리 핀(단면 겹침)과 맞춤 | 회전 오차가 있는 물리 파지는 시험 안 함 (Phase 4 는 명목 파지만) | `isaac/furnace/sim/grasp_estimator.py`, `run_grasp_estimator_eval.py`, `tests/test_grasp_estimator.py` (pytest 31 통과), `output/furnace/grasp_estimator/` | Phase 6 에서 B 조건 입력 |

@@ -48,7 +48,7 @@ gripper:
   pin_pitch_m: 0.012                   # source: confirmed (STL 실측)
   pin_stroke_m: 0.012                  # source: confirmed (스프링 행정, 논문 12.5 mm)
   pin_size_m: [0.009, 0.009, 0.0285]   # source: confirmed (STL bbox)
-  pin_spring_k: 300.0                  # N/m. source: assumed (미정)
+  pin_spring_k: 5000.0                 # N/m. source: assumed (미정). Phase 4 물리: 300·1500 은 들지 못함, 3000 은 이송 중 미끄러짐, 5000 에서 이송 성공
   pin_damping: 2.0                     # N·s/m. source: assumed (미정)
   max_opening_m: 0.067                 # source: confirmed (명령 규약)
   plate_travel_m: 0.030                # source: confirmed (meta.json)
@@ -69,3 +69,25 @@ robot:
 grasp:
   edge: long                           # long | short. source: assumed (긴 변 중앙)
   insert_depth_m: 0.030                # 판 가장자리가 jaw 사이로 들어간 깊이. source: assumed
+
+layout:                      # 장면 배치. 원점 = Mobile Base 바닥 투영 중심. source: assumed (Phase 4 도달성으로 조정)
+  furnace_xy: [1.15, 0.0]
+  rack_xy: [0.05, -0.80]               # 판 보관 랙 (판을 세워 꽂음)
+  rack_height: 0.75
+  robot_base_z: 0.837                  # 상판 0.825 + 장착판 0.012
+  hall_x: [-6.0, 12.0]
+  hall_y: [-6.0, 6.0]
+  hall_height: 9.0
+
+lighting:                    # dark_foundry 프리셋 값 (sim/lighting.py)
+  dome_intensity: 250.0
+  dome_color: [0.35, 0.42, 0.55]
+  ceiling_rect_intensity: 12000.0
+  ceiling_rect_color: [0.62, 0.72, 0.9]
+  melt_disk_intensity: 2500.0
+  melt_emissive: 3.0
+  melt_up_intensity: 6000.0
+  work_light_intensity: 3000.0
+  melt_sphere_intensity: 0.0
+  fill_intensity: 2500.0
+  exposure: {auto: false, film_iso: 100.0, shutter_s: 0.02, f_number: 5.0}
