@@ -1,5 +1,5 @@
 """
-핀어레이 그리퍼 (사용자 실물 CAD = usd/sim_gripper/*.stl, 설계판 v2 — PLAN §8-1 답 전까지).
+핀어레이 그리퍼 (사용자 실물 CAD = usd/sim_gripper/*.stl, 설계판 A4 (main b31925f)).
 
 add_visual(stage, parent, opening): link_6 아래에 스페이서 Ø80×35 mm + 그리퍼 시각 메시 (브리지와 같은 장착).
     반환: Body prim 경로와 판 Xform translate op (열림 갱신용).

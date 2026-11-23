@@ -3,7 +3,7 @@
 
 좌표: S = Sim_Gripper 프레임 (usd/sim_gripper/meta.json): 장착면 Z=0, 손가락 -Z, 판은 ±X 로 열림.
   - G.x = S.x = jaw 가 닫히는 방향 = 판 법선, G.z 손가락 방향 = -S.z, G.y = S.y
-  - 각 jaw 의 5×5 핀 (피치 12 mm). 핀 중심 (y, z) = (15.67 + 12 i, -128.4 + 12 k) mm, i,k ∈ {-2..2}
+  - 각 jaw 의 5×5 핀 (피치 12 mm). 핀 중심 (y, z) = (16.0 + 12 i, -128.3 + 12 k) mm (A4 판, b31925f), i,k ∈ {-2..2}
     (plate_{p,n}_pins.stl bbox 와 PLAN 의 5×5·12 mm 로부터. 중심 z 는 meta.json grasp_center 와 일치)
   - 핀 끝 x = ±shift (판이 shift 만큼 벌어진 위치). 핀은 바깥쪽(±X)으로만 눌려 들어간다. 행정 0–stroke.
 판(plate) 프레임 P: 원점 = 판 중심, P.x = 두께(법선), P.y = 긴 변, P.z = 짧은 변. 파지 가장자리 = P.z = +W/2 면.
@@ -18,8 +18,8 @@ from __future__ import annotations
 import numpy as np
 
 PITCH = 0.012
-PIN_Y = 0.01567 + PITCH * np.arange(-2, 3)              # m, S 프레임
-PIN_Z = -0.1284 + PITCH * np.arange(-2, 3)
+PIN_Y = 0.0160 + PITCH * np.arange(-2, 3)              # m, S 프레임
+PIN_Z = -0.1283 + PITCH * np.arange(-2, 3)
 PIN_HALF = 0.0045                                       # 핀 단면 반폭 (9 mm)
 PIN_YZ = np.array([(y, z) for z in PIN_Z for y in PIN_Y])   # (25,2), 행 = z(손가락 끝→몸체), 열 = y
 MAX_OPENING = 0.067

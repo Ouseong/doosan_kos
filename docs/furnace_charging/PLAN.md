@@ -61,14 +61,14 @@ git fetch origin && git switch furnace-charging && git pull
 | CAD | `usd/sim_gripper/*.stl` (body, plate_{p,n}_{house,pcb,pins,mag}) + `meta.json` | 리포 |
 | 프레임 | Sim_Gripper 좌표: 몸체 윗면(장착면) Z=0, 손가락 −Z, 판은 ±X 로 열림 | `meta.json` |
 | 판 이동 | 한쪽 0–30 mm (`plate_travel_mm`), 명령 0–0.067 m = 최대 열림 **약 67 mm** | `meta.json`, 브리지 `CMD_MAX_OPENING_M` |
-| grasp center | (0, 15.5, −128.4) mm (Sim_Gripper 좌표) | `meta.json` |
+| grasp center | (0, 15.5, −128.3) mm (Sim_Gripper 좌표, A4) | `meta.json` |
 | 장착 | link_6 플랜지 → 원기둥 스페이서 Ø80×35 mm → 그리퍼 (X축 180° 뒤집음) | 브리지 `_setup_sim_gripper` |
 | 핀 배열 | jaw 당 **5×5**, 피치 **12.0 mm** (STL 실측) | `Hall_Sensor/Code/Sim_Gripper.py:138` |
 | 핀 단면/길이 | 약 9.0 × 8.97 mm, 길이 28.5 mm (핀 덩어리 bbox) | `Sim_Gripper.py:137` |
 | 핀 stroke | 스프링 행정 12.0 mm (논문 그림은 12.5 mm) | `Sim_Gripper.py:210`, `논문_ICRA2027/make_figures.py:28` |
 | 스프링 강성·감쇠 | **없음** → [가정] | — |
 | 물리 | 현재 브리지의 그리퍼는 **시각 전용**(충돌·관절 없음). 핀은 움직이지 않음 | 브리지 docstring |
-| ⚠ 설계 버전 | 리포 STL 은 `Left_Plate_v2.stl`(v2) 에서 생성. `Sim_Gripper.py` 현재 기본은 `DESIGN="A4"` (2026-11-05 판) → **어느 판으로 시뮬레이션할지 사용자 확인** (§8) | `meta.json`, `Sim_Gripper.py:128` |
+| 설계 버전 | **A4 확정** (2026-11-23, main b31925f: `Plate_A4.stl`, DRV5055A4). 핀 중심 v2 대비 y +0.33, z +0.1 mm 이동, 배열·피치·행정 동일 | `meta.json`, `Sim_Gripper.py:128` |
 
 ### 1.4 이동 플랫폼 = 두산로보틱스 "Mobile Base" (사용자가 SYSCON 이라 부르는 장비)
 사용자 사진(흰 캐비닛, 검은 하부 스커트, 둥근 모서리 금속 상판, 옆 손잡이, 앞문·서랍, 내부 제어기 트레이, 상판 케이블 구멍)과 블로그(M1013 + 모바일 베이스 개봉기, **M8 볼트 4개로 로봇 고정**)로 확인.
@@ -342,3 +342,4 @@ Newton 단독 경로를 쓰게 되면 `fluid_plate_test` / `evaluate` 의 유체
 | 2026-11-23 | 5 | §2.3 결과 참조. 추정기 입력에 판 GT 없음(테스트로 확인). 기하 핀 모델의 접촉 규칙을 물리 핀(단면 겹침)과 맞춤 | 회전 오차가 있는 물리 파지는 시험 안 함 (Phase 4 는 명목 파지만) | `isaac/furnace/sim/grasp_estimator.py`, `run_grasp_estimator_eval.py`, `tests/test_grasp_estimator.py` (pytest 31 통과), `output/furnace/grasp_estimator/` | Phase 6 에서 B 조건 입력 |
 | 2026-11-23 | 6 | A/B/C/D 각 20 seed: B 가 release 각도 오차 2.8→1.7°, 위치 11.6→9.9 mm (dy 관측 불가가 지배). 모든 조건 탈출·rim 넘침 0. 높이 0.06 m(D) 가 운동에너지 2.1→1.3 J 로 추정 보정보다 효과 큼. sweep: 운동에너지는 높이·수평일수록 큼, 45° 판은 진입 중 벽 접촉. 첫 실행에서 기울인 판이 release 때 벽과 겹치는 오류·벽 접촉 정의 오류를 찾아 고치고 전부 재실행 | splash 질량 지표가 이 조건 범위에서 모두 0 → 비교 해상도 부족. 저해상도 작은 높이 결과 불안정 | `isaac/furnace/sim/release_controller.py`, `run_evaluate.py`, `make_results_plots.py`, `run_playback_render.py`, `output/furnace/evaluate/phase6/` (results.csv 122 행, summary.json, tables.md, 그림 2), `output/furnace/playback/*.png`, RESULTS.md | 더 높은 투입·낮은 freeboard·고밀도 유체 조건, Phase 4 물리 핀으로 회전 오차 실험, 실측 물성 |
 | 2026-11-23 | 7 | README furnace 섹션·실행 명령, VERSIONS·ASSETS·RESULTS 갱신, 낡은 README M1013 조립 절에 안내 추가 | — | README.md, docs/furnace_charging/* | — |
+| 2026-11-23 | 4' | main b31925f(A4 핀어레이 메시) merge. A4 핀 중심 실측 y 16.0, z −128.3 mm (v2 대비 +0.33/+0.1 mm), 5×5·12 mm·행정 동일 → grasp_geometry 상수 갱신. Phase 4 GUI 재실행(k=5000 [가정]): 판 들어 올림 성공, 핀 15/15 접촉, 이송 중 미끄러짐 2.6 mm (v2 와 같은 수준) | Phase 5–6 수치는 v2 핀 좌표로 계산됨 (차이 0.33 mm, 재실행 안 함) | `usd/sim_gripper/*` (main), `grasp_geometry.py`, `output/furnace/robot_charge_demo/a4_gui/result.json` | 필요하면 Phase 5–6 A4 로 재실행 |
