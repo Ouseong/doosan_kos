@@ -5,10 +5,11 @@ Hall_Sensor/Code/Sim_Gripper.py 가 그리는 핀어레이 그리퍼 CAD 를 Isa
 메시로 옮긴다. 핀은 움직이지 않으므로(정지 자세) 판 하나를 색깔별 4덩어리로
 합쳐서, 브리지가 매 프레임 판 두 개의 X 이동만 바꾸면 되게 한다.
 
-입력 (Hall_Sensor/Code/Simulation/)
-  Gripper_Body.stl                 몸통 (윗면 Z=0 이 로봇 플랜지 쪽 장착면)
-  Left_Plate_v2.stl                +X 판 (하우징 + PCB + 센서 + 핀)
-  Left_Plate_without_pin_v2.stl    +X 판 (핀 없음)
+입력 (Hall_Sensor/Code/Simulation/, Sim_Gripper 의 설계 선택 DESIGNS 를 그대로 따른다)
+  --design A4 (기본, 2026-11)  Body_A4.stl, Plate_A4.stl, Plate_A4_without_pin.stl
+                               Simple_Rack_A4 판: DRV5055A4, 자석-센서 13 mm
+  --design v2 (2026-10)        Gripper_Body.stl, Left_Plate_v2.stl, Left_Plate_without_pin_v2.stl
+  몸통 윗면 Z=0 이 로봇 플랜지 쪽 장착면, 판 STL 은 +X 판 (하우징 + PCB + 센서 + 핀).
 
 출력 (이 폴더, 단위 mm, Sim_Gripper 좌표계)
   body.stl
@@ -20,7 +21,8 @@ Hall_Sensor/Code/Sim_Gripper.py 가 그리는 핀어레이 그리퍼 CAD 를 Isa
 +X 판을 +(열림 + PLATE_OFFSET_MM), -X 판을 -(열림 + PLATE_OFFSET_MM) 만큼 민다.
 Sim_Gripper._apply() 와 같은 규칙이다.
 
-    python build_from_sim_gripper.py
+    python build_from_sim_gripper.py                  (A4 판)
+    python build_from_sim_gripper.py --design v2      (예전 판)
     python build_from_sim_gripper.py --code C:/Users/oskwo/Desktop/Hall_Sensor/Code
 """
 import argparse
@@ -36,10 +38,14 @@ DEFAULT_CODE = os.path.normpath(os.path.join(HERE, "..", "..", "..", "Hall_Senso
 
 p = argparse.ArgumentParser()
 p.add_argument("--code", default=DEFAULT_CODE, help="Hall_Sensor/Code 폴더")
+p.add_argument("--design", default="A4", help="Sim_Gripper 판 설계 (A4 | v2)")
 args = p.parse_args()
 
 sys.path.insert(0, args.code)
+_argv, sys.argv = sys.argv, sys.argv[:1]      # Sim_Gripper 가 우리 인자를 읽지 않게
 import Sim_Gripper as SG  # noqa: E402  (CAD 경로·핀 추출 규칙을 그대로 쓴다)
+sys.argv = _argv
+SG.set_design(args.design)
 
 
 def cat(meshes):
@@ -88,6 +94,8 @@ for name, m in groups.items():
 
 meta = {
     "source": os.path.relpath(SG.FULL_STL, args.code).replace("\\", "/"),
+    "design": SG.DESIGN,
+    "sensor": f"DRV5055{SG.SENSOR}",
     "units": "mm",
     "frame": "Sim_Gripper: body top (mount face) Z=0, fingers -Z, plates open along +-X",
     "plate_offset_mm": SG.PLATE_OFFSET_MM,      # 닫힘에서도 판 하나가 벌어져 있는 양
