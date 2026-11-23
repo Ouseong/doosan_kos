@@ -1,0 +1,868 @@
+{
+  "backend": "newton 1.8.0 MPM (isothermal water-like fluid, NOT molten metal) + MuJoCo rigid plate",
+  "err_range": {
+    "dx": 0.002,
+    "dy": 0.02,
+    "dz": 0.008,
+    "rx": 0.05235987755982989,
+    "ry": 0.05235987755982989,
+    "rz": 0.05235987755982989
+  },
+  "pin_noise_m": 0.0001,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "duration_s": 1.0,
+  "main_height_m": 0.15,
+  "main_pitch_deg": 0.0,
+  "low_height_m": 0.06,
+  "groups": {
+    "main": {
+      "A": {
+        "n": 20,
+        "release_pos_err_mm": {
+          "mean": 11.638766572589734,
+          "std": 6.170154848589773
+        },
+        "release_ang_err_deg": {
+          "mean": 2.8105321430288868,
+          "std": 0.9430300989910116
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.01212715357542037,
+          "std": 0.0012551967686961376
+        },
+        "max_splash_height": {
+          "mean": 0.04871695190668106,
+          "std": 0.01478373576639849
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.1008124037834994,
+          "std": 0.27822854825043974
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.06044921875,
+          "std": 0.028293191485731017
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.4,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "B": {
+        "n": 20,
+        "release_pos_err_mm": {
+          "mean": 9.86143451801282,
+          "std": 6.31629035238687
+        },
+        "release_ang_err_deg": {
+          "mean": 1.6537331045100618,
+          "std": 0.841763460268678
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.012192898988723744,
+          "std": 0.0006725241823298906
+        },
+        "max_splash_height": {
+          "mean": 0.04147330224514008,
+          "std": 0.007842650116061932
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.8198438861804944,
+          "std": 0.17677275062244638
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.06015625,
+          "std": 0.013832758757520137
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "C": {
+        "n": 20,
+        "release_pos_err_mm": {
+          "mean": 6.722900485298818e-14,
+          "std": 1.013697357492715e-13
+        },
+        "release_ang_err_deg": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.013999699056148517,
+          "std": 0.00015972197234623465
+        },
+        "max_splash_height": {
+          "mean": 0.0333639457821846,
+          "std": 0.0013416158613642078
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.181710676848577,
+          "std": 0.0465351336739848
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.07021484375,
+          "std": 0.006221707201639248
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "D": {
+        "n": 20,
+        "release_pos_err_mm": {
+          "mean": 11.638766572589724,
+          "std": 6.170154848589779
+        },
+        "release_ang_err_deg": {
+          "mean": 2.8105321430288868,
+          "std": 0.9430300989910116
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.009327027201652516,
+          "std": 0.0032001078638958865
+        },
+        "max_splash_height": {
+          "mean": 0.046606598794460295,
+          "std": 0.013576863491579208
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.306762999262077,
+          "std": 0.3443622391860533
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.0455078125,
+          "std": 0.02049478753044219
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.8,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      }
+    },
+    "height": {
+      "A_h0.05_p0_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498442,
+          "std": 6.4002809779839795
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.009911376237869252,
+          "std": 0.0004223275850722406
+        },
+        "max_splash_height": {
+          "mean": 0.03727846145629882,
+          "std": 0.005054569302936321
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.0968813622643607,
+          "std": 0.08623717555509487
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.041666666666666664,
+          "std": 0.005126307209643106
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.6666666666666666,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.05_p45_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498456,
+          "std": 6.400280977983975
+        },
+        "release_ang_err_deg": {
+          "mean": 2.5187995528828617,
+          "std": 1.0349580888308985
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.05411974390347798,
+          "std": 0.05364380634088294
+        },
+        "max_splash_height": {
+          "mean": 0.0857864201068878,
+          "std": 0.06602609902329712
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 3.084956357419315,
+          "std": 3.190870627588873
+        },
+        "above_surface_mass_peak": {
+          "mean": 1.0279947916666667,
+          "std": 1.306041834385956
+        },
+        "entry_wall_contact_frac": 1.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.05_p90_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498453,
+          "std": 6.400280977983993
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.012275395790735869,
+          "std": 0.00014499587965376373
+        },
+        "max_splash_height": {
+          "mean": 0.03552821079889932,
+          "std": 0.00023804734595877489
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 0.38109848929010665,
+          "std": 0.033206680445911865
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.039713541666666664,
+          "std": 0.00560047217906421
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.15_p0_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498456,
+          "std": 6.400280977983947
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.011770643790562937,
+          "std": 0.0001932609448115174
+        },
+        "max_splash_height": {
+          "mean": 0.037006028493245434,
+          "std": 0.0027829174777516293
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.8866089311239886,
+          "std": 0.26321440159423687
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.055338541666666664,
+          "std": 0.01690202472102496
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.6666666666666666,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.15_p45_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.63791979349846,
+          "std": 6.400280977984002
+        },
+        "release_ang_err_deg": {
+          "mean": 2.5187995528828617,
+          "std": 1.0349580888308985
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.018024065097173043,
+          "std": 0.0002796602255655437
+        },
+        "max_splash_height": {
+          "mean": 0.04151333173116047,
+          "std": 0.0008349216077531244
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.6109085457275818,
+          "std": 0.04434725917580518
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.15690104166666666,
+          "std": 0.003682847818679935
+        },
+        "entry_wall_contact_frac": 1.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.15_p90_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498453,
+          "std": 6.400280977983993
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.0158336838086446,
+          "std": 0.00018328752025942652
+        },
+        "max_splash_height": {
+          "mean": 0.03942730824152627,
+          "std": 0.0009407255443744084
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.5191882224602256,
+          "std": 0.5577920636669268
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.10872395833333333,
+          "std": 0.0060375120413383495
+        },
+        "entry_wall_contact_frac": 0.3333333333333333,
+        "wall_contact_any_time_frac": 0.3333333333333333,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.6666666666666666,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.30_p0_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498456,
+          "std": 6.400280977983947
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.013605980078379301,
+          "std": 0.0011049033784959568
+        },
+        "max_splash_height": {
+          "mean": 0.04151495099067687,
+          "std": 0.004575296454289627
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 3.9670007702549293,
+          "std": 1.0184941530231986
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.072265625,
+          "std": 0.03810679850693202
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.3333333333333333,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.30_p45_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.63791979349846,
+          "std": 6.400280977984002
+        },
+        "release_ang_err_deg": {
+          "mean": 2.5187995528828617,
+          "std": 1.0349580888308985
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.021468985080718983,
+          "std": 8.454357707511378e-05
+        },
+        "max_splash_height": {
+          "mean": 0.043030776580174755,
+          "std": 0.00072484433462756
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.6745394702123804,
+          "std": 0.12183815694422155
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.2858072916666667,
+          "std": 0.010618168248893287
+        },
+        "entry_wall_contact_frac": 1.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.30_p90_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498478,
+          "std": 6.400280977984012
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.027326661348342884,
+          "std": 0.0014507501447637294
+        },
+        "max_splash_height": {
+          "mean": 0.05611386696497598,
+          "std": 0.0034299275991703775
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 9.924546052295675,
+          "std": 0.5709130846909489
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.5911458333333334,
+          "std": 0.0675516516466546
+        },
+        "entry_wall_contact_frac": 0.3333333333333333,
+        "wall_contact_any_time_frac": 0.3333333333333333,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.6666666666666666,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.50_p0_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498453,
+          "std": 6.400280977983993
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.013470260302225737,
+          "std": 0.0008660350380765846
+        },
+        "max_splash_height": {
+          "mean": 0.038569647073745716,
+          "std": 0.006296911935405168
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 6.251395330762839,
+          "std": 1.0353168736913299
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.07486979166666667,
+          "std": 0.028984152720770918
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 0.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.50_p45_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.63791979349847,
+          "std": 6.400280977984002
+        },
+        "release_ang_err_deg": {
+          "mean": 2.5187995528828617,
+          "std": 1.0349580888308985
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.03404909173647561,
+          "std": 0.007031451118912146
+        },
+        "max_splash_height": {
+          "mean": 0.06352178057034809,
+          "std": 0.013342721228541453
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 4.991537622532712,
+          "std": 0.3811739329082296
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.7337239583333334,
+          "std": 0.12058163440406484
+        },
+        "entry_wall_contact_frac": 1.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.50_p90_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 8.637919793498478,
+          "std": 6.400280977984012
+        },
+        "release_ang_err_deg": {
+          "mean": 2.518799552882767,
+          "std": 1.0349580888308934
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.038353321949640896,
+          "std": 0.0005677693838457987
+        },
+        "max_splash_height": {
+          "mean": 0.06286381483078002,
+          "std": 0.0014662871935256048
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 22.857886058299595,
+          "std": 0.592928191887647
+        },
+        "above_surface_mass_peak": {
+          "mean": 2.0494791666666665,
+          "std": 0.27812816984772903
+        },
+        "entry_wall_contact_frac": 0.3333333333333333,
+        "wall_contact_any_time_frac": 0.6666666666666666,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.6666666666666666,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      }
+    },
+    "repeat": {
+      "C_h0.15_p0_dx0.025": {
+        "n": 3,
+        "release_pos_err_mm": {
+          "mean": 2.220717083251841e-13,
+          "std": 2.524354896707238e-29
+        },
+        "release_ang_err_deg": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.013857074578603098,
+          "std": 0.0001860747568146254
+        },
+        "max_splash_height": {
+          "mean": 0.03404167095820108,
+          "std": 0.0007778585827929387
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.1638567617331597,
+          "std": 0.012467252251750022
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.07356770833333333,
+          "std": 0.0048719497223619025
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      }
+    },
+    "highres": {
+      "A_h0.05_p0_dx0.0125": {
+        "n": 1,
+        "release_pos_err_mm": {
+          "mean": 0.7819003369728605,
+          "std": 0.0
+        },
+        "release_ang_err_deg": {
+          "mean": 2.57415734103851,
+          "std": 0.0
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.01494227647781371,
+          "std": 0.0
+        },
+        "max_splash_height": {
+          "mean": 0.07167201042175292,
+          "std": 0.0
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.7871925249106613,
+          "std": 0.0
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.1015625,
+          "std": 0.0
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.05_p45_dx0.0125": {
+        "n": 1,
+        "release_pos_err_mm": {
+          "mean": 0.7819003369728859,
+          "std": 0.0
+        },
+        "release_ang_err_deg": {
+          "mean": 2.5741573410387932,
+          "std": 0.0
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.019520121812820423,
+          "std": 0.0
+        },
+        "max_splash_height": {
+          "mean": 0.05467187166213988,
+          "std": 0.0
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 1.0335205105729843,
+          "std": 0.0
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.20947265625,
+          "std": 0.0
+        },
+        "entry_wall_contact_frac": 1.0,
+        "wall_contact_any_time_frac": 1.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 0.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      },
+      "A_h0.15_p0_dx0.0125": {
+        "n": 1,
+        "release_pos_err_mm": {
+          "mean": 0.781900336972972,
+          "std": 0.0
+        },
+        "release_ang_err_deg": {
+          "mean": 2.57415734103851,
+          "std": 0.0
+        },
+        "cumulative_escaped_mass_minus_baseline": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "over_rim_mass_peak": {
+          "mean": 0.0,
+          "std": 0.0
+        },
+        "p999_splash_height": {
+          "mean": 0.018959152698516835,
+          "std": 0.0
+        },
+        "max_splash_height": {
+          "mean": 0.09307073354721068,
+          "std": 0.0
+        },
+        "fluid_kinetic_energy_peak": {
+          "mean": 2.930702416713409,
+          "std": 0.0
+        },
+        "above_surface_mass_peak": {
+          "mean": 0.19970703125,
+          "std": 0.0
+        },
+        "entry_wall_contact_frac": 0.0,
+        "wall_contact_any_time_frac": 0.0,
+        "initial_overlap_frac": 0.0,
+        "plate_inserted_frac": 1.0,
+        "reachable_frac": 1.0,
+        "gripper_wet_frac": 0.0
+      }
+    }
+  }
+}

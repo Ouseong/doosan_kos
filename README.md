@@ -231,6 +231,9 @@ ss -tlnp | grep 12345
 
 Isaac Sim 의 URDF 임포터가 M1013 URDF 를 변환할 때 sublayer USD 들의 참조 체인이 깨집니다. 직접 조립해서 self-contained USD 를 만듭니다.
 
+> ⚠ 아래 두 스크립트는 커밋 `eb1f4a4` 에서 삭제되었다. 같은 내용을 정리한 `isaac/furnace/assets/build_m1013.py`
+> (furnace-charging 브랜치, 결과 `usd/generated/furnace/m1013/`) 를 쓰거나 `git show eb1f4a4^:isaac/urdf_to_usd_v2.py` 로 복구한다.
+
 ```bash
 # 컨테이너 안에서 실행
 docker exec doosan_kos bash -c "/isaac-sim/python.sh /kos_workspace/isaac/urdf_to_usd_v2.py"
@@ -463,6 +466,37 @@ DRCF 에뮬레이터 대신 실제 M1013 로봇 IP 로:
 ```bash
 ros2 launch dsr_bringup2 dsr_bringup2_rviz.launch.py \
   model:=m1013 mode:=real host:=<ROBOT_IP> port:=12345 gui:=false
+```
+
+---
+
+## Furnace charging 시뮬레이션 (furnace-charging 브랜치)
+
+핀어레이 그리퍼로 금속판(metal_plate, 재질 미확정)을 집어 용해로에 투입하고, 핀 변위로 파지 자세를 추정해 release 를 보정하는 연구용 시뮬레이션. 기존 브리지·해머링 작업과 분리되어 있다 (`isaac/furnace/`). 계획·원칙은 [docs/furnace_charging/](docs/furnace_charging/) (PLAN / SPEC / VERSIONS / ASSETS / RESULTS).
+
+- 장면·로봇·그리퍼 물리: Isaac Sim 5.1 (PhysX), 별도 컨테이너 `furnace_kos` (같은 이미지, 리포 worktree 마운트, ROS_DOMAIN_ID 77)
+- 유체: **Newton 1.8.0 MPM 단독** (별도 venv `~/venvs/furnace_newton`). Isaac Lab 의 MPM 은 Isaac Sim 6.2 전용이라 5.1 에서 못 씀. Isaac 화면의 유체는 Newton 결과 **재생**이며 화면에 그렇게 표시한다
+- 유체는 "용탕의 기계적 거동을 단순화한 등온 물 수준 유체" 이고 실제 용탕을 재현한다고 주장하지 않는다
+- Mobile Base 는 판매 페이지 치수(850×600×825 mm)로 만든 **임시 모델** (장착 위치·캐스터 가정). 공장·용해로는 절차적 생성 (외부 자산 없음)
+- 가정값 목록: PLAN §7, `isaac/furnace/config/default.yaml` (각 값에 source 표시)
+
+```bash
+# 준비 (한 번): docs/furnace_charging/VERSIONS.md "재현 명령" 참고 (worktree, furnace_kos 컨테이너, venv)
+# A. M1013 USD (공식 doosan-robot2 URDF → usd/generated/furnace/m1013)
+docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/assets/build_m1013.py --screenshot
+
+# 1) scene_preview — 공장·용해로·로봇 외형과 조명 (카메라 4 개 PNG)
+docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_scene_preview.py --headless
+# 2) fluid_plate_test — 판과 유체 물리만 (SPEC §13 1–8)
+CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_fluid_plate_test.py --suite
+# 3) robot_charge_demo — 로봇 파지·이송 (PhysX, 핀 50 개 스프링)
+docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_robot_charge_demo.py --headless --tag demo --frames_every 24
+# 4) evaluate — 조건 A/B/C/D 비교 (Newton)
+CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_evaluate.py --conditions A,B,C,D --seeds 0-19
+# 보조: 추정기 평가, Newton 결과 재생 렌더, 단위 테스트
+~/venvs/furnace_newton/bin/python isaac/furnace/run_grasp_estimator_eval.py
+docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_playback_render.py --headless --npz /kos_workspace/output/furnace/fluid_plate_test/<run>/free_drop_trajectory.npz
+~/venvs/furnace_newton/bin/python -m pytest isaac/furnace/tests
 ```
 
 ---

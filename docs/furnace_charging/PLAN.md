@@ -1,7 +1,7 @@
 # Furnace Charging — 구현 계획
 
 Date: 2026-11-23 (계획 작성: Windows 노트북, 실행 환경 없음)
-Status: **계획 단계. 코드 없음.** 서버(Isaac Sim 컨테이너가 도는 Linux 머신)에서 Phase 0 부터 진행
+Status: **Phase 0–7 1 차 완료 (2026-11-23).** 결과는 [RESULTS.md](RESULTS.md), 진행 기록은 §9
 Branch: `furnace-charging`
 원본 요구사항: [SPEC.md](SPEC.md) — 원칙은 SPEC 이 우선한다.
 
@@ -340,3 +340,5 @@ Newton 단독 경로를 쓰게 되면 `fluid_plate_test` / `evaluate` 의 유체
 | 2026-11-23 | 3 | NVIDIA PhysicalAI_SceneAssembly.zip 다운로드: LICENSE 없음, 강좌 페이지에도 자산 라이선스 없음, 내용은 PCB 조립 라인 → 사용 안 함. 공장·용해로·Mobile Base·텍스처 전부 절차적 생성. RTX 자동 노출 키 `/rtx/post/histogram/enabled` 확인·고정 노출 사용. 참조 레이어의 재질을 default prim 밖(/World/Looks)에 두면 reference 시 재질이 빠짐 → default prim 아래로. 카메라 기본 near clip 1 m 라 그리퍼가 잘림 → 0.01 m | 판(밀도 2700) 외의 재질값·조명 강도는 미적 조정값. Fab·Sketchfab·GrabCAD 후보는 확인 안 함 | `isaac/furnace/assets/build_{factory,furnace,mobile_base,plate,pin_gripper}.py`, `usd_util.py`, `sim/{lighting,cameras}.py`, `run_scene_preview.py`, `output/furnace/scene_preview/dark_foundry_{overview,three_quarter,contact,melt_side}.png` (실제 RTX 렌더, 정지 장면) | — |
 | 2026-11-23 | 4 | M1013 + 핀 그리퍼(jaw 2 + 핀 50 prismatic 스프링)가 한 articulation 58 dof 로 PhysX 에서 안정. 마찰 파지: 핀 k=300/1500 N/m 들지 못함, 3000 들었지만 이송 중 미끄러져 낙하, 5000 에서 랙→용해로 위 이송 성공(이송 중 미끄러짐 2.7 mm, 대부분 가장자리 방향 y). 로봇 drive stiffness 를 importer 기본 625 → 2e4 로 올림. 도달성: 용해로 위 판 중심 offset ≥0.25 m. payload: 밀도 7140·7870 후보는 판+그리퍼 11.9·13.0 kg > 10 kg (플래그) | 핀 스프링·그리퍼 질량·마찰계수는 가정. fixed joint 대안은 필요 없어서 안 씀. jaw 를 여는 순간의 판 교란은 모델링 안 함 | `isaac/furnace/run_robot_charge_demo.py`, `sim/{m1013_kinematics,grasp_geometry,payload_check}.py`, `output/furnace/robot_charge_demo/friction_k{300,1500,3000,5000}/` (log.csv 핀 변위 50 개, result.json, 대표 프레임 PNG), `output/furnace/payload_check.json` | Phase 5 추정기를 이 로그로 검증 |
 | 2026-11-23 | 5 | §2.3 결과 참조. 추정기 입력에 판 GT 없음(테스트로 확인). 기하 핀 모델의 접촉 규칙을 물리 핀(단면 겹침)과 맞춤 | 회전 오차가 있는 물리 파지는 시험 안 함 (Phase 4 는 명목 파지만) | `isaac/furnace/sim/grasp_estimator.py`, `run_grasp_estimator_eval.py`, `tests/test_grasp_estimator.py` (pytest 31 통과), `output/furnace/grasp_estimator/` | Phase 6 에서 B 조건 입력 |
+| 2026-11-23 | 6 | A/B/C/D 각 20 seed: B 가 release 각도 오차 2.8→1.7°, 위치 11.6→9.9 mm (dy 관측 불가가 지배). 모든 조건 탈출·rim 넘침 0. 높이 0.06 m(D) 가 운동에너지 2.1→1.3 J 로 추정 보정보다 효과 큼. sweep: 운동에너지는 높이·수평일수록 큼, 45° 판은 진입 중 벽 접촉. 첫 실행에서 기울인 판이 release 때 벽과 겹치는 오류·벽 접촉 정의 오류를 찾아 고치고 전부 재실행 | splash 질량 지표가 이 조건 범위에서 모두 0 → 비교 해상도 부족. 저해상도 작은 높이 결과 불안정 | `isaac/furnace/sim/release_controller.py`, `run_evaluate.py`, `make_results_plots.py`, `run_playback_render.py`, `output/furnace/evaluate/phase6/` (results.csv 122 행, summary.json, tables.md, 그림 2), `output/furnace/playback/*.png`, RESULTS.md | 더 높은 투입·낮은 freeboard·고밀도 유체 조건, Phase 4 물리 핀으로 회전 오차 실험, 실측 물성 |
+| 2026-11-23 | 7 | README furnace 섹션·실행 명령, VERSIONS·ASSETS·RESULTS 갱신, 낡은 README M1013 조립 절에 안내 추가 | — | README.md, docs/furnace_charging/* | — |
