@@ -41,3 +41,10 @@ Thumbs.db
 .cam_color
 .cam_open
 .cap_*.jpg
+
+# Furnace charging (docs/furnace_charging/PLAN.md)
+assets_external/
+usd/generated/
+output/furnace/**/frames/
+output/furnace/**/*.mp4
+output/furnace/**/*.npz
