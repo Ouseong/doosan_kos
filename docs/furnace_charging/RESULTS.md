@@ -97,8 +97,9 @@ Phase 4 물리 로그: dx 추정 0.47 mm vs GT 0.50 mm, 판 두께 9.92 mm vs 10
 |---|---|---|---|---|---|---|
 | low_vertical | 세움 (로봇 파지 자세, 가장자리 진입) | 0.06 m | 0.073 m | 0.38 kg | 1.35 J | 0 |
 | high_flat | 수평 | 0.50 m | 0.382 m | 4.84 kg | 24.4 J | 6.6 g |
+| robot_charge | 로봇이 놓은 실제 자세 (Isaac PhysX 판 상태, 도가니 중심에서 0.25 m) | 0.06 m | 0.067 m | 0.06 kg | 1.30 J | 0 |
 
-두 경우 모두 용기 밖 탈출 0. 대표 프레임 `output/furnace/splash_view/splash_compare_t030.png` (t = 0.30 s, 왼쪽 high_flat, 오른쪽 low_vertical). 영상 mp4 는 커밋하지 않음.
+세 경우 모두 용기 밖 탈출 0. robot_charge 는 로봇 데모(`--drop_height 0.06 --release`)가 그리퍼를 여는 순간의 판 위치·자세·속도를 `robot_release.json` 으로 저장하고 그 상태에서 Newton 을 시작한 것이다 (GUI 재실행에서도 놓는 위치 차이 2 mm 이내). 그리퍼가 열리는 0.6 s 동안 핀-판 접촉은 Newton 에 없다. 대표 프레임 `output/furnace/splash_view/splash_compare_t030.png` (t = 0.30 s, 왼쪽 high_flat, 오른쪽 low_vertical). 영상 mp4 는 커밋하지 않음.
 
 ## 5. 알려진 한계
 - 유체: 물 수준 등온 유체. 판(10 mm) 이 격자(12.5–25 mm) 보다 얇아 진입 후 침강이 해상도에 수렴하지 않음 (밀도 2700 판이 1.5 s 에 3–8 cm 만 가라앉음, 단순 종단속도 추정 ≈0.5 m/s). 진입 직후 지표만 비교에 썼다.

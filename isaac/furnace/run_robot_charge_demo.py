@@ -28,6 +28,12 @@ ap.add_argument("--headless", action="store_true")
 ap.add_argument("--tag", default="demo")
 ap.add_argument("--pin_k", type=float, default=None, help="핀 스프링 강성 덮어쓰기 [N/m]")
 ap.add_argument("--attach_fallback", action="store_true")
+ap.add_argument("--drop_height", type=float, default=None,
+                help="판 최저점을 액면 위 이 높이까지 내린다 [m]. 없으면 예전처럼 rim 위 0.15 m 에서 멈춤")
+ap.add_argument("--drop_offset", type=float, default=0.30, help="판 중심을 도가니 중심보다 로봇 쪽으로 [m]")
+ap.add_argument("--release", action="store_true", help="마지막에 그리퍼를 열어 판을 놓는다")
+ap.add_argument("--release_json", default=None, help="놓는 순간 판 상태(Newton 도가니 좌표)를 저장할 경로")
+ap.add_argument("--splash_npz", default=None, help="놓는 순간부터 재생할 Newton splash npz (run_splash_case.py --release_json)")
 ap.add_argument("--keep_open", action="store_true", help="GUI: 데모 끝난 뒤 창 유지 (닫을 때까지)")
 ap.add_argument("--frames_every", type=int, default=0, help="N 스텝마다 three_quarter/contact 프레임 PNG (0=끔)")
 ap.add_argument("--grasp_err", type=float, nargs=3, default=[0.0, 0.0, 0.0],
@@ -153,9 +159,15 @@ for name, T_S in (("pre_grasp", S_target(T_WP0, 0.15)), ("grasp", S_target(T_WP0
     q_seed = q
 # 용해로 위: 판을 세운 그대로(법선 수평). 긴 변은 접선 방향(y) — 작업반경 1.3 m 안에 들도록 판 중심을
 # 도가니 중심보다 로봇 쪽으로 drop_offset 만큼, 판 하단은 rim 위 drop_clear 만큼
-drop_offset, drop_clear = 0.30, 0.15     # 오프라인 IK 확인: offset ≥ 0.25 m 에서 도달 가능
-T_WPf = make_T(np.array([fx - drop_offset, fy, rim + drop_clear + W_ / 2]), rot("z", np.pi / 2) @ R_WP)
-for name, T_S in (("transit", S_target(T_WPf, 0.08)), ("over_furnace", S_target(T_WPf, 0.0))):
+drop_offset, drop_clear = args.drop_offset, 0.15     # 오프라인 IK 확인: offset 0.15–0.30, 액면 위 0.03 m 까지 도달 가능
+surf_z = rim - cfg["furnace"]["crucible_depth_m"] + cfg["furnace"]["melt_depth_m"]
+if args.drop_height is not None:
+    drop_clear = 0.08                                   # 낮게 넣을 때 경유점: rim 위 0.08 m (offset 0.25 에서 IK 해 있음)
+z_above = rim + drop_clear + W_ / 2
+z_drop = z_above if args.drop_height is None else surf_z + args.drop_height + W_ / 2
+T_WPf = make_T(np.array([fx - drop_offset, fy, z_drop]), rot("z", np.pi / 2) @ R_WP)
+for name, T_S in (("transit", S_target(T_WPf, z_above - z_drop + (0.06 if args.drop_height is not None else 0.08))), ("above", S_target(T_WPf, z_above - z_drop)),
+                  ("over_furnace", S_target(T_WPf, 0.0))):
     q, pe, re = kin.ik(link6_from_gripper_S(T_S), q0=q_seed, base=base_T)
     wps[name] = (q, pe, re)
     q_seed = q
@@ -173,7 +185,8 @@ grip_mat = UsdPhysics.MaterialAPI.Apply(stage.DefinePrim("/World/PhysMat/pin", "
 grip_mat.CreateStaticFrictionAttr(gcf["grasp_mu"] + 0.2); grip_mat.CreateDynamicFrictionAttr(gcf["grasp_mu"])
 pin_mat = UsdShade.Material(stage.GetPrimAtPath("/World/PhysMat/pin"))
 dark = U.material(stage, "grip_dark", color=(0.13, 0.13, 0.14), rough=0.55, scope="/World/Looks")
-steel = U.material(stage, "grip_steel", color=(0.78, 0.79, 0.81), metal=0.85, rough=0.3, scope="/World/Looks")
+steel = U.material(stage, "grip_steel", color=(0.92, 0.93, 0.95), metal=0.35, rough=0.25,   # 은색 핀: 금속성 높으면 어두운 공장에서 검게 보임
+                   emissive=(0.55, 0.56, 0.58), emissive_intensity=0.15, scope="/World/Looks")
 
 
 def body(path, T_world, mass, boxes, mat=None, vis_mat=None):
@@ -291,8 +304,69 @@ plan = [("settle", None, None, 0.5, gcf["max_opening_m"]),
         ("close", "grasp", "grasp", 1.5, 0.0),
         ("lift", "grasp", "lift", 2.0, 0.0),
         ("transit", "lift", "transit", 3.0, 0.0),
-        ("lower", "transit", "over_furnace", 2.0, 0.0),
-        ("hold", "over_furnace", "over_furnace", 1.5, 0.0)]
+        ("lower", "transit", "above", 1.5, 0.0),
+        ("descend", "above", "over_furnace", 2.0 if args.drop_height is not None else 0.01, 0.0),
+        ("hold", "over_furnace", "over_furnace", 1.0, 0.0)]
+if args.release:
+    plan += [("release", "over_furnace", "over_furnace", 0.6, gcf["max_opening_m"]),
+             ("after", "over_furnace", "above", 2.0, gcf["max_opening_m"])]
+
+# ── 놓는 순간 판 상태 / Newton splash 재생 ────────────────────────────────────────────
+floor_z = rim - cfg["furnace"]["crucible_depth_m"]
+N_ORIGIN = np.array([fx, fy, floor_z])                     # Newton 도가니 좌표 원점 = 도가니 바닥 중심
+P_TO_N = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], float)  # 열 = Newton 판 박스 축(x=L, y=W, z=t) 을 P(x=t, y=L, z=W)로
+release_t = None
+pb = None
+if args.splash_npz:
+    from pxr import Vt  # noqa: E402
+    zz = np.load(args.splash_npz)
+    pb = {"P": zz["particles_sub"].astype(np.float32), "plate": zz["plate"], "every": int(zz["every_n_frames"]),
+          "fps": float(zz["fps"]), "size": zz["plate_size"]}
+    pts = UsdGeom.Points.Define(stage, "/World/Splash/fluid")
+    pts.CreateWidthsAttr(Vt.FloatArray([0.010] * pb["P"].shape[1]))
+    U.bind(pts, U.material(stage, "pb_fluid", color=(1.0, 0.42, 0.08), rough=0.6, emissive=(1.0, 0.35, 0.05),
+                           emissive_intensity=0.6, scope="/World/Looks"))
+    pts.GetPointsAttr().Set(Vt.Vec3fArray.FromNumpy(pb["P"][0] + N_ORIGIN.astype(np.float32)))
+    pbp = UsdGeom.Cube.Define(stage, "/World/Splash/metal_plate")
+    pbp.CreateSizeAttr(1.0)
+    U.bind(pbp, U.material(stage, "pb_plate", color=(0.55, 0.55, 0.58), rough=0.45, metal=0.7, scope="/World/Looks"))
+    _x = UsdGeom.Xformable(pbp)
+    pb["ops"] = (_x.AddTranslateOp(), _x.AddOrientOp(), _x.AddScaleOp())
+    pb["ops"][2].Set(Gf.Vec3f(*map(float, pb["size"])))
+    UsdGeom.Imageable(pbp).MakeInvisible()
+    pb["pts"], pb["pbp"] = pts, pbp
+    for p in stage.Traverse():                               # 정지 용탕 원판은 숨기고 입자를 액체로 보인다
+        if p.GetName() == "melt_surface" or p.GetName().startswith("crust"):
+            UsdGeom.Imageable(p).MakeInvisible()
+
+
+def show_splash(tau):
+    """tau = 놓은 뒤 경과 시간 [s]. Newton 기록의 해당 프레임을 그린다 (재생)."""
+    k = min(int(tau * pb["fps"] / pb["every"]), len(pb["P"]) - 1)
+    f = min(k * pb["every"], len(pb["plate"]) - 1)
+    pb["pts"].GetPointsAttr().Set(Vt.Vec3fArray.FromNumpy(pb["P"][k] + N_ORIGIN.astype(np.float32)))
+    p, q = pb["plate"][f, :3] + N_ORIGIN, pb["plate"][f, 3:]
+    pb["ops"][0].Set(Gf.Vec3d(*map(float, p)))
+    pb["ops"][1].Set(Gf.Quatf(float(q[3]), float(q[0]), float(q[1]), float(q[2])))
+    return k >= len(pb["P"]) - 1
+
+
+def capture_release():
+    from scipy.spatial.transform import Rotation as Rot
+    pos, qw = plate.get_world_pose()                         # (w, x, y, z)
+    R_WP_now = Rot.from_quat([qw[1], qw[2], qw[3], qw[0]]).as_matrix()
+    R_WN = R_WP_now @ P_TO_N
+    st = {"t_release": t, "pos": (np.asarray(pos) - N_ORIGIN).tolist(),
+          "quat_xyzw": Rot.from_matrix(R_WN).as_quat().tolist(),
+          "lin_vel": np.asarray(plate.get_linear_velocity()).tolist(),
+          "ang_vel": np.asarray(plate.get_angular_velocity()).tolist(),
+          "frame": "Newton crucible frame: origin = crucible floor centre, z up; plate box axes x=L, y=W, z=t",
+          "source": "Isaac Sim PhysX plate state at the first step of the release phase (gripper starts opening)"}
+    if args.release_json:
+        json.dump(st, open(args.release_json, "w"), indent=2)
+    print("[demo] release state", json.dumps({k: (np.round(v, 4).tolist() if isinstance(v, list) else v)
+                                              for k, v in st.items() if k in ("t_release", "pos", "lin_vel")}), flush=True)
+    return st
 rows = []
 attached = None
 t = 0.0
@@ -315,6 +389,8 @@ if not args.headless:
     import cameras  # noqa: E402
     from isaacsim.core.utils.viewports import set_camera_view as _scv  # noqa: E402
     _e, _tg = cameras.presets(cfg)["three_quarter"]
+    if args.drop_height is not None:                          # 용해로 안이 보이는 시점
+        _e, _tg = np.array([fx - 0.9, fy - 2.3, rim + 1.5]), np.array([fx - 0.25, fy, rim - 0.05])
     _scv(eye=_e, target=_tg)
     for _ in range(30):
         app.update()
@@ -327,6 +403,15 @@ for phase, a, b, dur, opening in plan:
         u = (k + 1) / n
         u = 3 * u * u - 2 * u ** 3                         # smoothstep
         set_targets(qa + (qb - qa) * u, opening)
+        if phase == "release" and k == 0:
+            capture_release()
+            release_t = t
+            if pb is not None:                                # 여기부터 판·액체는 Newton 기록 재생
+                plate.disable_rigid_body_physics()
+                UsdGeom.Imageable(stage.GetPrimAtPath(plate_path)).MakeInvisible()
+                UsdGeom.Imageable(pb["pbp"]).MakeVisible()
+        if pb is not None and release_t is not None:
+            show_splash(t - release_t)
         world.step(render=(bool(cams) or not args.headless) and (k % 4 == 0))
         t += DT
         if args.attach_fallback and phase == "close" and k == n - 1 and attached is None:
@@ -381,7 +466,8 @@ res = {"grasp_method": "fixed-joint attach after contact (fallback)" if args.att
        "pin_stroke_m": stroke, "plate_mass_kg": rho * L_ * W_ * t_, "plate_density_candidate": rho,
        "ik": ik_report, "articulation_dofs": int(robot.num_dof),
        "plate_z_rack": float(z_rack), "plate_z_end": rows[-1]["gt_plate_z"],
-       "plate_lifted": bool(rows[-1]["gt_plate_z"] > z_rack + 0.2),
+       "plate_lifted": bool(at("hold")[-1]["gt_plate_z"] > z_rack + 0.2),
+       "released": release_t is not None, "drop_height_m": args.drop_height, "drop_offset_m": args.drop_offset,
        "plate_in_S_after_close_mm": (rel_close * 1000).round(2).tolist(),
        "plate_in_S_at_hold_mm": (rel_hold * 1000).round(2).tolist(),
        "slip_during_transport_mm": float(np.linalg.norm(rel_hold - rel_close) * 1000),
@@ -392,6 +478,11 @@ json.dump(res, open(os.path.join(out, "result.json"), "w"), indent=2)
 print(json.dumps(res, indent=2))
 if args.keep_open and not args.headless:
     print("[demo] 완료 — 창을 닫으면 종료")
+    import time as _time
+    _t0 = _time.time()
     while app.is_running():
+        if pb is not None and release_t is not None:          # splash 를 0.5 배속으로 반복 재생
+            tau = ((_time.time() - _t0) * 0.5) % (len(pb["P"]) * pb["every"] / pb["fps"] + 0.5)
+            show_splash(tau)
         app.update()
 app.close()

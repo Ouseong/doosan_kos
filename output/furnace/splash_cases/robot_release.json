@@ -1,0 +1,26 @@
+{
+  "t_release": 13.499999999999554,
+  "pos": [
+    -0.25019207000732413,
+    5.2826377213932574e-05,
+    0.6567742347717285
+  ],
+  "quat_xyzw": [
+    -0.5000404272288801,
+    0.4999611921108235,
+    0.5000507603577345,
+    -0.4999476118410158
+  ],
+  "lin_vel": [
+    0.0002299838961334899,
+    -0.001267491141334176,
+    0.002533760853111744
+  ],
+  "ang_vel": [
+    -0.006778974086046219,
+    -0.002082898747175932,
+    0.00013880712504033
+  ],
+  "frame": "Newton crucible frame: origin = crucible floor centre, z up; plate box axes x=L, y=W, z=t",
+  "source": "Isaac Sim PhysX plate state at the first step of the release phase (gripper starts opening)"
+}

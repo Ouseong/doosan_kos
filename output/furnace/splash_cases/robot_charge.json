@@ -1,0 +1,30 @@
+{
+  "tag": "robot_charge",
+  "release_json": "output/furnace/splash_cases/robot_release.json",
+  "pitch_deg": 0.0,
+  "yaw_deg": 0.0,
+  "release_height_m": 0.06,
+  "release_vz": 0.0,
+  "voxel_m": 0.018,
+  "iterations": 150,
+  "particles": 306864,
+  "frames": 150,
+  "wall_s": 25.2,
+  "plate_mass_kg": 4.050000190734863,
+  "metrics": {
+    "total_mass": 223.7038625171408,
+    "final_outside_mass": 0.0,
+    "cumulative_escaped_mass": 0.0,
+    "cumulative_escaped_count": 0,
+    "final_penetrated_mass": 0.01895400055218488,
+    "penetrated_mass_peak": 0.01895400055218488,
+    "over_rim_mass_peak": 0.0,
+    "max_splash_height": 0.0666904330253601,
+    "p999_splash_height": 0.012852001190185536,
+    "p99_splash_height": 0.0016418874263763317,
+    "outside_kinetic_energy_peak": 0.0,
+    "above_surface_mass_peak": 0.06342300184769556,
+    "fluid_kinetic_energy_peak": 1.2953097074655453
+  },
+  "note": "Newton SolverImplicitMPM water-like isothermal fluid (not molten metal) + rigid plate, two-way coupled"
+}

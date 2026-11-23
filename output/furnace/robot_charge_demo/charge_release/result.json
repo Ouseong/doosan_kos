@@ -1,0 +1,117 @@
+{
+  "grasp_method": "friction (pin springs + jaw force)",
+  "physics": "PhysX (Isaac Sim 5.1), dt=1/240",
+  "robot_drive": {
+    "stiffness": 20000.0,
+    "damping": 2000.0
+  },
+  "jaw_drive": {
+    "stiffness": 200000.0,
+    "damping": 2000.0,
+    "max_force": 150.0
+  },
+  "pin_drive": {
+    "stiffness": 5000.0,
+    "damping": 2.0
+  },
+  "pin_stroke_m": 0.012,
+  "plate_mass_kg": 4.05,
+  "plate_density_candidate": 2700,
+  "ik": {
+    "pre_grasp": {
+      "q_deg": [
+        -88.1,
+        39.33,
+        48.95,
+        0.02,
+        91.71,
+        1.89
+      ],
+      "pos_err_mm": 4.585973723508303e-13,
+      "rot_err_deg": 0.0
+    },
+    "grasp": {
+      "q_deg": [
+        -88.1,
+        40.93,
+        61.68,
+        0.02,
+        77.38,
+        1.89
+      ],
+      "pos_err_mm": 2.2397820652915095e-06,
+      "rot_err_deg": 0.0
+    },
+    "lift": {
+      "q_deg": [
+        -88.1,
+        41.13,
+        35.48,
+        0.02,
+        103.38,
+        1.89
+      ],
+      "pos_err_mm": 4.783309287441108e-13,
+      "rot_err_deg": 0.0
+    },
+    "transit": {
+      "q_deg": [
+        -1.18,
+        41.17,
+        20.33,
+        0.03,
+        118.48,
+        -1.18
+      ],
+      "pos_err_mm": 4.337618697409145e-10,
+      "rot_err_deg": 0.0
+    },
+    "above": {
+      "q_deg": [
+        -1.18,
+        36.46,
+        35.32,
+        0.02,
+        108.21,
+        -1.18
+      ],
+      "pos_err_mm": 2.2336880404788363e-13,
+      "rot_err_deg": 0.0
+    },
+    "over_furnace": {
+      "q_deg": [
+        -1.17,
+        34.48,
+        66.63,
+        0.02,
+        78.88,
+        -1.19
+      ],
+      "pos_err_mm": 1.2560931329685046e-12,
+      "rot_err_deg": 0.0
+    }
+  },
+  "articulation_dofs": 58,
+  "plate_z_rack": 0.903,
+  "plate_z_end": 0.4500000476837158,
+  "plate_lifted": false,
+  "released": true,
+  "drop_height_m": 0.06,
+  "drop_offset_m": 0.25,
+  "plate_in_S_after_close_mm": [
+    -0.03,
+    15.96,
+    -279.82
+  ],
+  "plate_in_S_at_hold_mm": [
+    0.14,
+    15.94,
+    -279.84
+  ],
+  "slip_during_transport_mm": 0.1691130743862401,
+  "pins_pressed_at_hold": {
+    "p": 15,
+    "n": 15
+  },
+  "note": "pin displacement = prismatic joint position (simulation ground truth). gt_* columns for evaluation only"
+}

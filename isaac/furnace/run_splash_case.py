@@ -30,6 +30,7 @@ ap.add_argument("--pitch", type=float, default=0.0, help="0=세운 판(가장자
 ap.add_argument("--yaw", type=float, default=0.0)
 ap.add_argument("--height", type=float, default=0.06, help="판 최저점의 액면 위 높이 [m]")
 ap.add_argument("--vz", type=float, default=0.0, help="놓는 순간 하강 속도 [m/s] (아래 = 음수)")
+ap.add_argument("--release_json", default=None, help="로봇 데모가 저장한 놓는 순간 판 상태 (있으면 pitch/height/vz 무시)")
 ap.add_argument("--voxel", type=float, default=0.018)
 ap.add_argument("--iters", type=int, default=150)
 ap.add_argument("--duration", type=float, default=1.5)
@@ -46,6 +47,11 @@ corners = np.array([quat_rotate(q, [sx * lx / 2, sy * ly / 2, sz * lz / 2])
                     for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)])
 zc = melt + args.height - corners[:, 2].min()
 drop = DropSpec(mode="free_drop", pos=(0.0, 0.0, float(zc)), quat=tuple(q), lin_vel=(0.0, 0.0, args.vz))
+if args.release_json:
+    rs = json.load(open(args.release_json))
+    drop = DropSpec(mode="free_drop", pos=tuple(rs["pos"]), quat=tuple(rs["quat_xyzw"]),
+                    lin_vel=tuple(rs["lin_vel"]), ang_vel=tuple(rs["ang_vel"]))
+    print("[splash] release state from", args.release_json, "pos", np.round(rs["pos"], 3).tolist())
 
 sim = PlateFluidSim(cfg, drop, voxel=args.voxel, max_iterations=args.iters)
 res = sim.run(args.duration, snapshot_every=args.every, sub_count=args.sub)
@@ -57,7 +63,7 @@ np.savez_compressed(os.path.join(args.out, f"{args.tag}_trajectory.npz"),
                     plate=np.array([[r[k] for k in ("px", "py", "pz", "qx", "qy", "qz", "qw")] for r in rows]),
                     plate_size=np.array(sim.plate_size), radius=sim.R, depth=sim.H, wall=sim.T, melt=sim.melt)
 m = res["metrics"]
-info = {"tag": args.tag, "pitch_deg": args.pitch, "yaw_deg": args.yaw, "release_height_m": args.height,
+info = {"tag": args.tag, "release_json": args.release_json, "pitch_deg": args.pitch, "yaw_deg": args.yaw, "release_height_m": args.height,
         "release_vz": args.vz, "voxel_m": sim.voxel, "iterations": args.iters, "particles": res["particles"],
         "frames": res["frames"], "wall_s": round(res["wall_s"], 1), "plate_mass_kg": float(sim.model.body_mass.numpy()[sim.plate_body]),
         "metrics": m, "note": "Newton SolverImplicitMPM water-like isothermal fluid (not molten metal) + rigid plate, two-way coupled"}

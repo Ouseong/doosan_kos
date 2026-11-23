@@ -504,6 +504,11 @@ docker exec -e DISPLAY=:1 -e CUDA_VISIBLE_DEVICES=2 furnace_kos /isaac-sim/pytho
 CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_splash_case.py --tag low_vertical --pitch 0 --height 0.06
 CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_splash_case.py --tag high_flat --pitch 90 --height 0.5
 docker exec -e DISPLAY=:1 -e CUDA_VISIBLE_DEVICES=2 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_splash_view.py --cases low_vertical high_flat
+# J. 로봇이 판을 액면 위 0.06 m 까지 내려 놓고, 놓는 순간부터 Newton splash 재생 (2 단계)
+#    1) headless 로 놓는 순간 판 상태 저장 → 2) Newton 계산 → 3) GUI 에서 로봇 + splash 재생
+docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_robot_charge_demo.py --headless --pin_k 5000 --tag charge_release --drop_height 0.06 --drop_offset 0.25 --release --release_json /kos_workspace/output/furnace/splash_cases/robot_release.json
+CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_splash_case.py --tag robot_charge --release_json output/furnace/splash_cases/robot_release.json
+docker exec -e DISPLAY=:1 -e CUDA_VISIBLE_DEVICES=2 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_robot_charge_demo.py --pin_k 5000 --tag charge_gui --drop_height 0.06 --drop_offset 0.25 --release --splash_npz /kos_workspace/output/furnace/splash_cases/robot_charge_trajectory.npz --keep_open
 ```
 
 ---
