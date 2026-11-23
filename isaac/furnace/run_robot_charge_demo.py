@@ -28,6 +28,7 @@ ap.add_argument("--headless", action="store_true")
 ap.add_argument("--tag", default="demo")
 ap.add_argument("--pin_k", type=float, default=None, help="핀 스프링 강성 덮어쓰기 [N/m]")
 ap.add_argument("--attach_fallback", action="store_true")
+ap.add_argument("--keep_open", action="store_true", help="GUI: 데모 끝난 뒤 창 유지 (닫을 때까지)")
 ap.add_argument("--frames_every", type=int, default=0, help="N 스텝마다 three_quarter/contact 프레임 PNG (0=끔)")
 ap.add_argument("--grasp_err", type=float, nargs=3, default=[0.0, 0.0, 0.0],
                 help="랙 위 판 초기 위치 오차 (S 기준 dx, dz, ry_deg) — 파지 오차 생성용")
@@ -310,6 +311,14 @@ if args.frames_every:
         cams[nm].set_clipping_range(0.01, 1e4)
     os.makedirs(os.path.join(out, "frames"), exist_ok=True)
 
+if not args.headless:
+    import cameras  # noqa: E402
+    from isaacsim.core.utils.viewports import set_camera_view as _scv  # noqa: E402
+    _e, _tg = cameras.presets(cfg)["three_quarter"]
+    _scv(eye=_e, target=_tg)
+    for _ in range(30):
+        app.update()
+
 for phase, a, b, dur, opening in plan:
     n = int(round(dur / DT))
     qa = wps[a][0] if a else q_init
@@ -318,7 +327,7 @@ for phase, a, b, dur, opening in plan:
         u = (k + 1) / n
         u = 3 * u * u - 2 * u ** 3                         # smoothstep
         set_targets(qa + (qb - qa) * u, opening)
-        world.step(render=bool(cams) and (k % 4 == 0))
+        world.step(render=(bool(cams) or not args.headless) and (k % 4 == 0))
         t += DT
         if args.attach_fallback and phase == "close" and k == n - 1 and attached is None:
             # 대안: 접촉 후 fixed joint 로 판을 그리퍼 몸체에 부착 (결과에 표시)
@@ -381,4 +390,8 @@ res = {"grasp_method": "fixed-joint attach after contact (fallback)" if args.att
        "note": "pin displacement = prismatic joint position (simulation ground truth). gt_* columns for evaluation only"}
 json.dump(res, open(os.path.join(out, "result.json"), "w"), indent=2)
 print(json.dumps(res, indent=2))
+if args.keep_open and not args.headless:
+    print("[demo] 완료 — 창을 닫으면 종료")
+    while app.is_running():
+        app.update()
 app.close()
