@@ -1,0 +1,71 @@
+# Furnace charging 기본 설정. 각 값의 source: confirmed | vendor | assumed (PLAN §7 과 동기화)
+# 단위: m, kg, s, deg
+
+plate:                       # 이름은 metal_plate. 재질 미확정
+  name: metal_plate
+  size_m: [0.50, 0.30, 0.010]          # source: assumed (SPEC 근삿값)
+  density_candidates: [2700, 7140, 7870]   # source: assumed (예시 후보, 재질 확정 아님)
+  density_index: 0                     # 실험에서 고르는 후보 인덱스
+  friction: 0.5                        # source: assumed
+
+furnace:                     # 도가니 = Phase 1 용기와 같은 치수
+  crucible_inner_d_m: 0.80             # source: assumed
+  crucible_depth_m: 0.70               # source: assumed
+  melt_depth_m: 0.45                   # source: assumed (rim 아래 0.25 m)
+  wall_thickness_m: 0.10               # 충돌용 벽 두께. source: assumed (dx 의 4 배 이상이 되게)
+  wall_segments: 32                    # 벽 = convex 박스 조각 수 (단일 convex hull 금지)
+  rim_height_from_floor_m: 1.0         # 공장 장면에서 도가니 rim 높이. source: assumed
+
+fluid:                       # 용탕의 기계적 거동을 단순화한 등온 유체. 실제 용탕 아님
+  density: 1000.0                      # source: assumed (물 수준). 고밀도 변형은 fluid_dense
+  viscosity: 0.0                       # source: assumed
+  friction: 0.0
+  tensile_yield_ratio: 1.0             # newton example_mpm_water_dam_break 기본값
+
+fluid_res:                   # 물리 해상도 (시각 품질과 분리)
+  voxel_m: 0.025
+  particles_per_cell: 2.0
+  fps: 100
+  substeps: 4                          # 강체 substep (MPM 은 프레임당 1 step, newton twoway 예제와 같음)
+  max_iterations: 50
+  strain_basis: pic8                   # P0(기본)은 물이 1.5 s 에 36 % 압축됨(Phase 1 확인). pic8 은 1.6 %
+  settle_s: 0.5                        # 판 투입 전 액체 안정화 시간 (지표 미포함)
+  project_outside: true                # 매 step 후 SolverImplicitMPM.project_outside (newton 예제가 쓰는 공식 함수)
+
+drop:                        # fluid_plate_test 기본 투입 조건
+  mode: free_drop                      # free_drop | kinematic
+  center_above_surface_m: 0.30
+  rpy_deg: [0.0, 20.0, 0.0]
+  lin_vel: [0.0, 0.0, 0.0]
+  ang_vel: [0.0, 0.0, 0.0]
+  kinematic_speed_mps: 1.0             # kinematic 모드: 판 중심을 이 속도로 수직 하강
+  kinematic_depth_m: 0.20              # 액면 아래 이 깊이까지 밀어 넣고 정지
+  duration_s: 1.5
+  seed: 0
+
+gripper:
+  pins_per_jaw: [5, 5]                 # source: confirmed (실물)
+  pin_pitch_m: 0.012                   # source: confirmed (STL 실측)
+  pin_stroke_m: 0.012                  # source: confirmed (스프링 행정, 논문 12.5 mm)
+  pin_size_m: [0.009, 0.009, 0.0285]   # source: confirmed (STL bbox)
+  pin_spring_k: 300.0                  # N/m. source: assumed (미정)
+  pin_damping: 2.0                     # N·s/m. source: assumed (미정)
+  max_opening_m: 0.067                 # source: confirmed (명령 규약)
+  plate_travel_m: 0.030                # source: confirmed (meta.json)
+  mass_kg: 1.2                         # source: assumed (실측 요청, §8)
+  mount_spacer_m: [0.080, 0.035]       # 지름, 길이. source: confirmed (2026-10-26 실측)
+  grasp_mu: 0.3                        # source: assumed
+
+base:                        # Doosan Robotics Mobile Base (수동 이동 캐비닛)
+  size_m: [0.85, 0.60, 0.825]          # source: vendor (판매 페이지)
+  mass_kg: 166                         # source: vendor
+  robot_mount_xy_m: [0.0, 0.0]         # 상판 중앙. source: assumed
+
+robot:
+  payload_kg: 10.0                     # source: vendor
+  reach_m: 1.3                         # source: vendor
+  wrist_effort_nm: 50.0                # J4-J6. source: URDF (doosan-robot2)
+
+grasp:
+  edge: long                           # long | short. source: assumed (긴 변 중앙)
+  insert_depth_m: 0.030                # 판 가장자리가 jaw 사이로 들어간 깊이. source: assumed

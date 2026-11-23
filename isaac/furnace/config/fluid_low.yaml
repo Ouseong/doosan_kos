@@ -1,0 +1,4 @@
+# 탐색용 저해상도
+fluid_res:
+  voxel_m: 0.025
+  particles_per_cell: 2.0

@@ -1,0 +1,5 @@
+# 검증용 고해상도
+fluid_res:
+  voxel_m: 0.0125
+  particles_per_cell: 2.0
+  max_iterations: 400                  # dx 12.5 mm 는 400 회에서 바닥 관통이 줄어듦 (Phase 1)

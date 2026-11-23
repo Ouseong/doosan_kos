@@ -1,0 +1,400 @@
+{
+  "backend": "newton 1.8.0 standalone (SolverImplicitMPM + SolverMuJoCo), no Isaac Sim",
+  "fluid_model": "isothermal simplified fluid (water-like). NOT molten metal",
+  "config": {
+    "plate": {
+      "name": "metal_plate",
+      "size_m": [
+        0.5,
+        0.3,
+        0.01
+      ],
+      "density_candidates": [
+        2700,
+        7140,
+        7870
+      ],
+      "density_index": 0,
+      "friction": 0.5
+    },
+    "furnace": {
+      "crucible_inner_d_m": 0.8,
+      "crucible_depth_m": 0.7,
+      "melt_depth_m": 0.45,
+      "wall_thickness_m": 0.1,
+      "wall_segments": 32,
+      "rim_height_from_floor_m": 1.0
+    },
+    "fluid": {
+      "density": 1000.0,
+      "viscosity": 0.0,
+      "friction": 0.0,
+      "tensile_yield_ratio": 1.0
+    },
+    "fluid_res": {
+      "voxel_m": 0.025,
+      "particles_per_cell": 2.0,
+      "fps": 100,
+      "substeps": 4,
+      "max_iterations": 50,
+      "strain_basis": "pic8",
+      "settle_s": 0.5,
+      "project_outside": true
+    },
+    "drop": {
+      "mode": "free_drop",
+      "center_above_surface_m": 0.3,
+      "rpy_deg": [
+        0.0,
+        20.0,
+        0.0
+      ],
+      "lin_vel": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ang_vel": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "kinematic_speed_mps": 1.0,
+      "kinematic_depth_m": 0.2,
+      "duration_s": 1.5,
+      "seed": 0
+    },
+    "gripper": {
+      "pins_per_jaw": [
+        5,
+        5
+      ],
+      "pin_pitch_m": 0.012,
+      "pin_stroke_m": 0.012,
+      "pin_size_m": [
+        0.009,
+        0.009,
+        0.0285
+      ],
+      "pin_spring_k": 300.0,
+      "pin_damping": 2.0,
+      "max_opening_m": 0.067,
+      "plate_travel_m": 0.03,
+      "mass_kg": 1.2,
+      "mount_spacer_m": [
+        0.08,
+        0.035
+      ],
+      "grasp_mu": 0.3
+    },
+    "base": {
+      "size_m": [
+        0.85,
+        0.6,
+        0.825
+      ],
+      "mass_kg": 166,
+      "robot_mount_xy_m": [
+        0.0,
+        0.0
+      ]
+    },
+    "robot": {
+      "payload_kg": 10.0,
+      "reach_m": 1.3,
+      "wrist_effort_nm": 50.0
+    },
+    "grasp": {
+      "edge": "long",
+      "insert_depth_m": 0.03
+    }
+  },
+  "duration_s": 1.5,
+  "runs": {
+    "no_plate": {
+      "tag": "no_plate",
+      "mode": "no_plate",
+      "voxel_m": 0.025,
+      "ppc": 2.0,
+      "fps": 100,
+      "substeps": 4,
+      "project_outside": true,
+      "particles": 114034,
+      "frames": 150,
+      "wall_s": 6.6,
+      "plate_density": null,
+      "plate_mass_kg": null,
+      "metrics": {
+        "total_mass": 222.72265625,
+        "final_outside_mass": 0.0,
+        "cumulative_escaped_mass": 0.0,
+        "cumulative_escaped_count": 0,
+        "final_penetrated_mass": 0.095703125,
+        "penetrated_mass_peak": 0.095703125,
+        "over_rim_mass_peak": 0.0,
+        "max_splash_height": 0.00916202664375304,
+        "p999_splash_height": -0.004168701171875011,
+        "p99_splash_height": -0.01105327606201173,
+        "outside_kinetic_energy_peak": 0.0,
+        "above_surface_mass_peak": 0.0,
+        "fluid_kinetic_energy_peak": 0.028258757330499387
+      }
+    },
+    "free_drop": {
+      "tag": "free_drop",
+      "mode": "free_drop",
+      "voxel_m": 0.025,
+      "ppc": 2.0,
+      "fps": 100,
+      "substeps": 4,
+      "project_outside": true,
+      "particles": 114034,
+      "frames": 150,
+      "wall_s": 11.7,
+      "plate_density": 2700,
+      "plate_mass_kg": 4.050000190734863,
+      "metrics": {
+        "total_mass": 222.72265625,
+        "final_outside_mass": 0.0,
+        "cumulative_escaped_mass": 0.0,
+        "cumulative_escaped_count": 0,
+        "final_penetrated_mass": 0.130859375,
+        "penetrated_mass_peak": 0.16015625,
+        "over_rim_mass_peak": 0.0,
+        "max_splash_height": 0.03959529399871825,
+        "p999_splash_height": 0.025865185260772694,
+        "p99_splash_height": 0.010365980863571156,
+        "outside_kinetic_energy_peak": 0.0,
+        "above_surface_mass_peak": 0.705078125,
+        "fluid_kinetic_energy_peak": 4.438813142495241
+      },
+      "checks": {
+        "plate_min_z_m": 0.3800479143082002,
+        "plate_max_r_m": 0.30638054298897954,
+        "crucible_R_m": 0.4,
+        "no_penetration": true,
+        "max_rotation_change_deg": 25.28353500366211,
+        "entry_frame": 20,
+        "az_before_entry": -7.082319259643555,
+        "window_s": 0.15,
+        "fluid_impulse_over_weight": 2.206359624862671,
+        "free_fall_ratio": 0.0,
+        "decelerated_after_entry": true
+      },
+      "metrics_minus_baseline": {
+        "total_mass": 222.72265625,
+        "final_outside_mass": 0.0,
+        "cumulative_escaped_mass": 0.0,
+        "cumulative_escaped_count": 0,
+        "final_penetrated_mass": 0.130859375,
+        "penetrated_mass_peak": 0.16015625,
+        "over_rim_mass_peak": 0.0,
+        "max_splash_height": 0.03959529399871825,
+        "p999_splash_height": 0.025865185260772694,
+        "p99_splash_height": 0.010365980863571156,
+        "outside_kinetic_energy_peak": 0.0,
+        "above_surface_mass_peak": 0.705078125,
+        "fluid_kinetic_energy_peak": 4.438813142495241,
+        "final_outside_mass_minus_baseline": 0.0,
+        "cumulative_escaped_mass_minus_baseline": 0.0,
+        "over_rim_mass_peak_minus_baseline": 0.0,
+        "final_penetrated_mass_minus_baseline": 0.03515625,
+        "penetrated_mass_peak_minus_baseline": 0.064453125,
+        "max_splash_height_minus_baseline": 0.03043326735496521,
+        "p999_splash_height_minus_baseline": 0.030033886432647705,
+        "p99_splash_height_minus_baseline": 0.021419256925582886,
+        "outside_kinetic_energy_peak_minus_baseline": 0.0,
+        "above_surface_mass_peak_minus_baseline": 0.705078125,
+        "fluid_kinetic_energy_peak_minus_baseline": 4.410554385164741
+      }
+    },
+    "kinematic": {
+      "tag": "kinematic",
+      "mode": "kinematic",
+      "voxel_m": 0.025,
+      "ppc": 2.0,
+      "fps": 100,
+      "substeps": 4,
+      "project_outside": true,
+      "particles": 114034,
+      "frames": 150,
+      "wall_s": 6.8,
+      "plate_density": 2700,
+      "plate_mass_kg": 4.050000190734863,
+      "metrics": {
+        "total_mass": 222.72265625,
+        "final_outside_mass": 0.01171875,
+        "cumulative_escaped_mass": 0.02734375,
+        "cumulative_escaped_count": 14,
+        "final_penetrated_mass": 0.4296875,
+        "penetrated_mass_peak": 0.4296875,
+        "over_rim_mass_peak": 0.0390625,
+        "max_splash_height": 0.3372328758239746,
+        "p999_splash_height": 0.14604978561401366,
+        "p99_splash_height": 0.07361446619033812,
+        "outside_kinetic_energy_peak": 0.0016268311519525014,
+        "above_surface_mass_peak": 11.125,
+        "fluid_kinetic_energy_peak": 24.691028015155013
+      },
+      "coupling": "one-way (plate trajectory prescribed; fluid force NOT applied to plate)",
+      "metrics_minus_baseline": {
+        "total_mass": 222.72265625,
+        "final_outside_mass": 0.01171875,
+        "cumulative_escaped_mass": 0.02734375,
+        "cumulative_escaped_count": 14,
+        "final_penetrated_mass": 0.4296875,
+        "penetrated_mass_peak": 0.4296875,
+        "over_rim_mass_peak": 0.0390625,
+        "max_splash_height": 0.3372328758239746,
+        "p999_splash_height": 0.14604978561401366,
+        "p99_splash_height": 0.07361446619033812,
+        "outside_kinetic_energy_peak": 0.0016268311519525014,
+        "above_surface_mass_peak": 11.125,
+        "fluid_kinetic_energy_peak": 24.691028015155013,
+        "final_outside_mass_minus_baseline": 0.01171875,
+        "cumulative_escaped_mass_minus_baseline": 0.02734375,
+        "over_rim_mass_peak_minus_baseline": 0.0390625,
+        "final_penetrated_mass_minus_baseline": 0.333984375,
+        "penetrated_mass_peak_minus_baseline": 0.333984375,
+        "max_splash_height_minus_baseline": 0.32807084918022156,
+        "p999_splash_height_minus_baseline": 0.15021848678588867,
+        "p99_splash_height_minus_baseline": 0.08466774225234985,
+        "outside_kinetic_energy_peak_minus_baseline": 0.0016268311519525014,
+        "above_surface_mass_peak_minus_baseline": 11.125,
+        "fluid_kinetic_energy_peak_minus_baseline": 24.662769257824515
+      }
+    }
+  },
+  "checks": {
+    "1_liquid_retained": {
+      "no_plate_final_outside_frac": 0.0,
+      "no_plate_cumulative_escaped_frac": 0.0,
+      "no_plate_penetrated_peak_frac": 0.00042969640633495275,
+      "pass": true
+    },
+    "2_no_penetration_plate": {
+      "plate_min_z_m": 0.3800479143082002,
+      "plate_max_r_m": 0.30638054298897954,
+      "pass": true
+    },
+    "3_free_motion_after_release": {
+      "max_rotation_change_deg": 25.28353500366211,
+      "pass": true
+    },
+    "4_plate_displaces_liquid": {
+      "no_plate_fluid_ke_peak_J": 0.028258757330499387,
+      "free_drop_fluid_ke_peak_J": 4.438813142495241,
+      "kinematic_fluid_ke_peak_J": 24.691028015155013,
+      "free_drop_above_surface_mass_peak_minus_baseline": 0.705078125,
+      "free_drop_max_height_minus_baseline": 0.03043326735496521,
+      "note": "\ud310 \ubd80\ud53c/\uc218\uba74\uc801 = 1.5e-3/0.503 \u2248 3 mm \uc218\uc704 \uc0c1\uc2b9\uc774 \uc774\ub860\uac12\uc774\ub77c \uc218\uba74 \uc704 \uc9c8\ub7c9\uc740 \uc791\ub2e4. \uc720\uccb4 \uc6b4\ub3d9\uc5d0\ub108\uc9c0\ub85c \ud310\uc815",
+      "pass": true
+    },
+    "5_fluid_reaction_on_plate": {
+      "entry_frame": 20,
+      "az_before_entry": -7.082319259643555,
+      "window_s": 0.15,
+      "fluid_impulse_over_weight": 2.206359624862671,
+      "decelerated_after_entry": true,
+      "pass": true
+    },
+    "6_particle_io": {
+      "read": [
+        "particle_q",
+        "particle_qd",
+        "particle_mass"
+      ],
+      "pass": true
+    },
+    "7_reset": {
+      "initial_state_max_err_after_reset_m": 0.0,
+      "plate_traj_max_diff_reset_vs_first_m": 0.0003139181062579155,
+      "plate_traj_max_diff_fresh_vs_fresh_m": 0.0002749483101069927,
+      "final_particle_max_diff_reset_vs_first_m": 0.00921168364584446,
+      "note": "fresh-vs-fresh \ucc28\uc774 = \uac19\uc740 \uc785\ub825\uc5d0\uc11c\ub3c4 \uc0dd\uae30\ub294 \uc2e4\ud589 \uac04 \ucc28\uc774(GPU \ube44\uacb0\uc815\uc131). reset \ucc28\uc774\uac00 \uc774 \uc218\uc900\uc774\uba74 reset \uc790\uccb4\ub294 \uc815\uc0c1",
+      "pass": true
+    },
+    "8_resolution_dt_sweep": [
+      {
+        "label": "dx25_fps100",
+        "voxel": 0.025,
+        "fps": 100,
+        "max_iterations": 50,
+        "particles": 114034,
+        "wall_s_free": 11.2,
+        "thickness_over_dx": 0.39999999999999997,
+        "noimpact_escaped_frac": 0.0,
+        "noimpact_pen_peak_frac": 0.00042969640633495275,
+        "escaped_mass_minus_baseline": 0.0,
+        "over_rim_peak": 0.0,
+        "p999_height": 0.02588813304901122,
+        "noimpact_level_drop_m": null,
+        "plate_min_z": 0.3800944773293319,
+        "plate_final_z": 0.4204421639442444,
+        "fluid_impulse_over_weight": 2.206346035003662,
+        "above_surface_mass_peak_minus_baseline": 0.705078125,
+        "no_penetration": true
+      },
+      {
+        "label": "dx18_fps100",
+        "voxel": 0.018,
+        "fps": 100,
+        "max_iterations": 150,
+        "particles": 306864,
+        "wall_s_free": 25.2,
+        "thickness_over_dx": 0.5555555555555556,
+        "noimpact_escaped_frac": 0.0,
+        "noimpact_pen_peak_frac": 0.0,
+        "escaped_mass_minus_baseline": 0.0,
+        "over_rim_peak": 0.0,
+        "p999_height": 0.031161177158355702,
+        "noimpact_level_drop_m": null,
+        "plate_min_z": 0.34556983395994034,
+        "plate_final_z": 0.4076622724533081,
+        "fluid_impulse_over_weight": 2.013601779937744,
+        "above_surface_mass_peak_minus_baseline": 1.4536260423483327,
+        "no_penetration": true
+      },
+      {
+        "label": "dx125_fps100",
+        "voxel": 0.0125,
+        "fps": 100,
+        "max_iterations": 400,
+        "particles": 919374,
+        "wall_s_free": 152.0,
+        "thickness_over_dx": 0.7999999999999999,
+        "noimpact_escaped_frac": 0.0,
+        "noimpact_pen_peak_frac": 0.0001772945504223526,
+        "escaped_mass_minus_baseline": 0.0,
+        "over_rim_peak": 0.0,
+        "p999_height": 0.0369079291820526,
+        "noimpact_level_drop_m": null,
+        "plate_min_z": 0.3221220483531202,
+        "plate_final_z": 0.3708844482898712,
+        "fluid_impulse_over_weight": 2.3037257194519043,
+        "above_surface_mass_peak_minus_baseline": 2.03515625,
+        "no_penetration": true
+      },
+      {
+        "label": "dx25_fps200",
+        "voxel": 0.025,
+        "fps": 200,
+        "max_iterations": 50,
+        "particles": 114034,
+        "wall_s_free": 21.3,
+        "thickness_over_dx": 0.39999999999999997,
+        "noimpact_escaped_frac": 0.0,
+        "noimpact_pen_peak_frac": 0.0,
+        "escaped_mass_minus_baseline": 0.0,
+        "over_rim_peak": 0.0,
+        "p999_height": 0.02886538505554198,
+        "noimpact_level_drop_m": null,
+        "plate_min_z": 0.42651146531881756,
+        "plate_final_z": 0.43769949674606323,
+        "fluid_impulse_over_weight": 2.152289867401123,
+        "above_surface_mass_peak_minus_baseline": 0.625,
+        "no_penetration": true
+      }
+    ]
+  }
+}

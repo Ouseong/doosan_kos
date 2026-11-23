@@ -1,0 +1,5 @@
+label,voxel,fps,max_iterations,particles,wall_s_free,thickness_over_dx,noimpact_escaped_frac,noimpact_pen_peak_frac,escaped_mass_minus_baseline,over_rim_peak,p999_height,noimpact_level_drop_m,plate_min_z,plate_final_z,fluid_impulse_over_weight,above_surface_mass_peak_minus_baseline,no_penetration
+dx25_fps100,0.025,100,50,114034,11.2,0.4,0,0.000429696,0,0,0.0258881,,0.380094,0.42044216,2.20635,0.705078,True
+dx18_fps100,0.018,100,150,306864,25.2,0.555556,0,0,0,0,0.0311612,,0.34557,0.40766227,2.0136,1.45363,True
+dx125_fps100,0.0125,100,400,919374,152,0.8,0,0.000177295,0,0,0.0369079,,0.322122,0.37088445,2.30373,2.03516,True
+dx25_fps200,0.025,200,50,114034,21.3,0.4,0,0,0,0,0.0288654,,0.426511,0.4376995,2.15229,0.625,True
