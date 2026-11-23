@@ -1,0 +1,95 @@
+{
+  "urdf": "assets_external/doosan-robot2/dsr_description2/urdf/m1013.urdf",
+  "entry_usd": "usd/generated/furnace/m1013/m1013_full.usda",
+  "import_result": true,
+  "prim_types": {
+    "Xform": 22,
+    "Scope": 2,
+    "Material": 8,
+    "Shader": 8,
+    "PhysicsRevoluteJoint": 6,
+    "PhysicsFixedJoint": 1
+  },
+  "articulation_root": "/World/m1013/root_joint",
+  "link_6": "/World/m1013/link_6",
+  "revolute_joints": [
+    {
+      "name": "joint_1",
+      "axis": "Z",
+      "lower_deg": -360.0008239746094,
+      "upper_deg": 360.0008239746094,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 346.0
+    },
+    {
+      "name": "joint_2",
+      "axis": "Z",
+      "lower_deg": -360.0008239746094,
+      "upper_deg": 360.0008239746094,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 346.0
+    },
+    {
+      "name": "joint_3",
+      "axis": "Z",
+      "lower_deg": -159.9984588623047,
+      "upper_deg": 159.9984588623047,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 163.0
+    },
+    {
+      "name": "joint_4",
+      "axis": "Z",
+      "lower_deg": -360.0008239746094,
+      "upper_deg": 360.0008239746094,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 50.0
+    },
+    {
+      "name": "joint_5",
+      "axis": "Z",
+      "lower_deg": -360.0008239746094,
+      "upper_deg": 360.0008239746094,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 50.0
+    },
+    {
+      "name": "joint_6",
+      "axis": "Z",
+      "lower_deg": -360.0008239746094,
+      "upper_deg": 360.0008239746094,
+      "drive_stiffness": 625.0,
+      "drive_damping": 0.0,
+      "max_force": 50.0
+    }
+  ],
+  "dof_names": [
+    "joint_1",
+    "joint_2",
+    "joint_3",
+    "joint_4",
+    "joint_5",
+    "joint_6"
+  ],
+  "num_dof": 6,
+  "home_joint_positions_rad": [
+    -3e-05,
+    -0.00018,
+    -1.57108,
+    0.0018,
+    -1.57141,
+    -7e-05
+  ],
+  "link_6_world_pos_at_home_m": [
+    -0.559,
+    0.0345,
+    0.6514
+  ],
+  "ok": true,
+  "screenshot": "output/furnace/phase0/m1013_home.png"
+}

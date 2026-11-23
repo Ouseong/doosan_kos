@@ -32,9 +32,9 @@ git fetch origin && git switch furnace-charging && git pull
 | Isaac Sim | 5.1.0 Docker (`nvcr.io/nvidia/isaac-sim:5.1.0`) + ROS2 Jazzy, 컨테이너명 `doosan_kos` | `docker/Dockerfile` |
 | 마운트 | 리포 루트 → 컨테이너 `/kos_workspace` | `docker/container.sh:88` |
 | 실행 | `docker exec doosan_kos /isaac-sim/python.sh /kos_workspace/...` | 기존 브리지 docstring |
-| 하드웨어 | DGX Spark(aarch64, GB10) 또는 x86_64 서버 둘 다 지원하도록 되어 있음. **어느 쪽에서 돌릴지 Phase 0 에서 `uname -m` 으로 확인** | README |
+| 하드웨어 | **x86_64 서버 (RTX A6000 ×3)** 에서 진행 (Phase 0 `uname -m` 확인). aarch64 는 wheel 존재만 확인 | VERSIONS.md |
 | 기존 API | 브리지는 `omni.isaac.core` (World, add_reference_to_stage) 사용. Isaac Sim 5.x 에서는 `isaacsim.core.api` 등으로 이름이 바뀌는 중 → **새 코드는 설치본에서 실제로 import 되는 쪽을 확인 후 사용** | `isaac/m1013_gripper_bridge.py:120-125` |
-| Isaac Lab / Newton | 리포·Dockerfile 어디에도 없음. 설치 여부 미확인 | grep |
+| Isaac Lab / Newton | 5.1 컨테이너에 둘 다 없음 (Phase 0 확인). Newton 은 별도 venv 1.8.0 사용 | [VERSIONS.md](VERSIONS.md) |
 
 ### 1.2 M1013 로봇 USD — ⚠ 생성 스크립트가 지워져 있음
 - 브리지 기본 경로: `--robot_usd /tmp/m1013_v2/m1013_full.usda` (임시 경로, 컨테이너 재시작 시 사라질 수 있음).
@@ -331,3 +331,4 @@ Newton 단독 경로를 쓰게 되면 `fluid_plate_test` / `evaluate` 의 유체
 | 날짜 | Phase | 확인한 사실 | 미확정 | 만든 결과 | 다음 검증 |
 |---|---|---|---|---|---|
 | 2026-11-23 | 계획 | §1 전부 | §7 [가정] 항목, §8 | PLAN.md, SPEC.md, ASSETS.md | Phase 0 |
+| 2026-11-23 | 0 | x86_64·A6000·드라이버 580.65.06·디스크 여유 54 GB. Isaac Sim 5.1.0-rc.19, Isaac Lab·Newton 미설치. Isaac Lab MPM 은 main(3.0)=Isaac Sim 6.2 전용, 5.1 미지원(v2.3 문서 MPM 없음) → Newton 1.8.0 별도 venv 채택, 공식 MPM 예제 2개 실행 성공. M1013: 공식 m1013.usd 없음 → URDF(doosan-robot2 jazzy 816ecb5) 변환, joint 6·한계 URDF 와 일치·link_6 확인 (importer 가 drive stiffness 를 625 로 넣음, 1e7 설정 무시). 최소 판-액체(양방향): 판 진입 후 감속(+6.8 m/s²), 관통 없음, 액체 밀어냄 | 수치 누수 1.4 %(판 없음 대조에서도) → splash 판정 불가 상태. 판 두께/dx=0.4. reset·sweep 미시험. Isaac Sim 6.0 이미지의 Newton 확장 미실행. §8 답 없음 | `isaac/furnace/assets/build_m1013.py`, `isaac/furnace/sim/newton_plate_drop_min.py`, `plot_newton_min.py`, `output/furnace/phase0/` (m1013_check.json, m1013_home.png, newton_min*/result.json·timeseries.csv, side_view.png), VERSIONS.md | Phase 1: 누수 원인(바닥·벽 모서리, 벽 두께 vs dx) 제거, dx sweep(25/12.5 mm), reset 재현성, 원통 용기 |

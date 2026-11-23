@@ -8,10 +8,12 @@
 
 | 이름 | 원본 URL | 제작자 | 라이선스 | 다운로드 날짜 | 원본 형식 | 변환·수정 | 실행 시 외부 의존 | 사용 위치 |
 |---|---|---|---|---|---|---|---|---|
-| M1013 URDF + mesh | https://github.com/DoosanRobotics/doosan-robot2 | Doosan Robotics | 미확인 (리포 LICENSE 확인) | 컨테이너 빌드 시 | URDF/xacro, DAE | USD 변환 (`isaac/furnace/assets/build_m1013.py`) | 컨테이너의 dsr_description2 | 로봇 |
+| M1013 URDF + mesh | https://github.com/doosan-robotics/doosan-robot2 (jazzy, 커밋 816ecb5) | Doosan Robotics | Apache-2.0 (리포 LICENSE 확인) | 2026-11-23 (doosan_kos 컨테이너 /ros2_ws/src 에서 복사) | URDF(`dsr_description2/urdf/m1013.urdf`), DAE (m1013_white, m1013_collision) | package:// → 절대경로로 바꿔 URDF importer 로 USD 변환 (`isaac/furnace/assets/build_m1013.py`) | `assets_external/doosan-robot2/` (gitignore, SOURCE.txt 에 커밋 기록) | 로봇 |
 | 핀어레이 그리퍼 CAD | (사용자 자체 설계) | 사용자 | 자체 | — | STL (`usd/sim_gripper/`) | 단위 mm→m, 충돌·관절 추가 | 없음 | 그리퍼 |
 | Mobile Base | (절차적 생성, 판매 페이지 치수 사용) | 이 프로젝트 | 자체 | — | Python/OpenUSD | — | 없음 | 플랫폼 |
 | 용해로 | (절차적 생성) | 이 프로젝트 | 자체 | — | Python/OpenUSD | — | 없음 | 용해로 |
+
+| Newton / Warp / MuJoCo (물리 엔진, 자산 아님) | https://pypi.org/project/newton/ | NVIDIA 외 (newton-physics) / Google DeepMind (mujoco) | Apache-2.0 (newton, warp-lang, mujoco 패키지 메타데이터) | 2026-11-23 | pip wheel | 없음 | `~/venvs/furnace_newton` | 유체 백엔드 |
 
 ## 검토한 후보 (사용 여부 판단 기록)
 
@@ -29,4 +31,4 @@
 
 ## 재현 절차 (재배포 불가 자산)
 
-(해당 자산이 생기면 작성)
+- M1013 mesh: `doosan_kos` 컨테이너가 있으면 `docker cp doosan_kos:/ros2_ws/src/doosan-robot2/dsr_description2/{urdf/m1013.urdf,meshes/m1013_white,meshes/m1013_collision,package.xml} assets_external/doosan-robot2/dsr_description2/...`. 없으면 `git clone -b jazzy https://github.com/doosan-robotics/doosan-robot2.git && git checkout 816ecb5` 후 같은 파일 복사.

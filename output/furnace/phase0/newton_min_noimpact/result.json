@@ -1,0 +1,44 @@
+{
+  "backend": "newton (standalone venv, no Isaac Sim)",
+  "newton": "1.8.0",
+  "warp": "1.19.0",
+  "coupling": "two-way (MPM collider impulses -> rigid body forces, as in example_mpm_twoway_coupling)",
+  "rigid_solver": "SolverMuJoCo(use_mujoco_contacts=False)",
+  "fluid": {
+    "model": "implicit MPM, water-like (friction 0, viscosity 0)",
+    "density": 1000.0,
+    "isothermal_simplified": true,
+    "particles": 254016,
+    "voxel_m": 0.025,
+    "ppc": 3.0,
+    "total_mass_kg": 144.0
+  },
+  "tank": {
+    "inner_half_m": [
+      0.3,
+      0.3
+    ],
+    "height_m": 0.7,
+    "walls": "5 static boxes (convex pieces)"
+  },
+  "plate": null,
+  "fps": 100.0,
+  "substeps": 4,
+  "frames": 150,
+  "wall_time_s": 3.7,
+  "checks": {
+    "1_liquid_retained": {
+      "final_outside_mass_kg": 1.969954490661621,
+      "final_outside_fraction": 0.01368023951848348,
+      "below_floor_mass_kg_max": 0.7851473093032837
+    },
+    "6_particle_read": {
+      "ok": true,
+      "fields": [
+        "particle_q",
+        "particle_qd",
+        "particle_mass"
+      ]
+    }
+  }
+}

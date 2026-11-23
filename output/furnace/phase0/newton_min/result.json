@@ -1,0 +1,82 @@
+{
+  "backend": "newton (standalone venv, no Isaac Sim)",
+  "newton": "1.8.0",
+  "warp": "1.19.0",
+  "coupling": "two-way (MPM collider impulses -> rigid body forces, as in example_mpm_twoway_coupling)",
+  "rigid_solver": "SolverMuJoCo(use_mujoco_contacts=False)",
+  "fluid": {
+    "model": "implicit MPM, water-like (friction 0, viscosity 0)",
+    "density": 1000.0,
+    "isothermal_simplified": true,
+    "particles": 254016,
+    "voxel_m": 0.025,
+    "ppc": 3.0,
+    "total_mass_kg": 144.0
+  },
+  "tank": {
+    "inner_half_m": [
+      0.3,
+      0.3
+    ],
+    "height_m": 0.7,
+    "walls": "5 static boxes (convex pieces)"
+  },
+  "plate": {
+    "name": "metal_plate",
+    "size_m": [
+      0.5,
+      0.3,
+      0.01
+    ],
+    "density_candidate": 2700.0,
+    "mass_kg": 4.050000190734863,
+    "thickness_over_voxel": 0.39999999999999997
+  },
+  "fps": 100.0,
+  "substeps": 4,
+  "frames": 150,
+  "wall_time_s": 33.8,
+  "checks": {
+    "1_liquid_retained": {
+      "final_outside_mass_kg": 2.17460298538208,
+      "final_outside_fraction": 0.01510140962070889,
+      "below_floor_mass_kg_max": 0.8469387292861938
+    },
+    "6_particle_read": {
+      "ok": true,
+      "fields": [
+        "particle_q",
+        "particle_qd",
+        "particle_mass"
+      ]
+    },
+    "2_no_penetration": {
+      "plate_min_z_m": 0.22311948774843393,
+      "floor_z_m": 0.0,
+      "plate_max_abs_xy_m": 0.2603652784475491,
+      "tank_inner_half_m": [
+        0.3,
+        0.3
+      ],
+      "ok": true
+    },
+    "3_free_motion": {
+      "max_rotation_change_deg": 21.950694566845375,
+      "plate_z_travel_m": 0.40907949209213257
+    },
+    "5_fluid_reaction": {
+      "entry_frame": 17,
+      "vz_at_entry": -1.7657667398452759,
+      "vz_5_frames_later": -1.426728367805481,
+      "observed_az_m_s2": 6.780767440795898,
+      "free_fall_az_m_s2": -9.81,
+      "decelerated_vs_free_fall": true
+    },
+    "4_liquid_displaced": {
+      "initial_max_z": 0.3992377817630768,
+      "peak_max_particle_z": 0.5642390251159668,
+      "peak_p99_particle_z": 0.4037858545780182,
+      "over_rim_mass_peak_kg": 0.0
+    }
+  }
+}
