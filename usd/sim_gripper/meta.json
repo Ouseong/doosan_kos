@@ -1,13 +1,15 @@
 {
- "source": "Simulation/Left_Plate_v2.stl",
+ "source": "Simulation/Plate_A4.stl",
+ "design": "A4",
+ "sensor": "DRV5055A4",
  "units": "mm",
  "frame": "Sim_Gripper: body top (mount face) Z=0, fingers -Z, plates open along +-X",
  "plate_offset_mm": 1.0,
  "plate_travel_mm": 30.0,
  "grasp_center_mm": [
   0.0,
-  15.500000586992087,
-  -128.40000070968426
+  15.500000285812504,
+  -128.30000050704675
  ],
  "colors": {
   "body": [
@@ -36,5 +38,5 @@
    0.96
   ]
  },
- "triangles": 201806
+ "triangles": 191482
 }
