@@ -497,6 +497,13 @@ CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_evalu
 ~/venvs/furnace_newton/bin/python isaac/furnace/run_grasp_estimator_eval.py
 docker exec -e CUDA_VISIBLE_DEVICES=1 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_playback_render.py --headless --npz /kos_workspace/output/furnace/fluid_plate_test/<run>/free_drop_trajectory.npz
 ~/venvs/furnace_newton/bin/python -m pytest isaac/furnace/tests
+# H. 로봇 데모를 GUI 로 보기 (끝나도 창 유지). 창은 디스플레이 GPU(2) + xhost +local: 필요
+DISPLAY=:1 xhost +local:
+docker exec -e DISPLAY=:1 -e CUDA_VISIBLE_DEVICES=2 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_robot_charge_demo.py --pin_k 5000 --tag a4_gui --keep_open
+# I. splash 1 건 계산 (Newton, dx 18 mm, 약 30 s) → 두 건을 용해로 두 개에 나란히 재생 (GUI 반복 / --headless --record 로 프레임 저장)
+CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_splash_case.py --tag low_vertical --pitch 0 --height 0.06
+CUDA_VISIBLE_DEVICES=1 ~/venvs/furnace_newton/bin/python isaac/furnace/run_splash_case.py --tag high_flat --pitch 90 --height 0.5
+docker exec -e DISPLAY=:1 -e CUDA_VISIBLE_DEVICES=2 furnace_kos /isaac-sim/python.sh /kos_workspace/isaac/furnace/run_splash_view.py --cases low_vertical high_flat
 ```
 
 ---

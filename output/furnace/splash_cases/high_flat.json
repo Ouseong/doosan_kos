@@ -1,0 +1,29 @@
+{
+  "tag": "high_flat",
+  "pitch_deg": 90.0,
+  "yaw_deg": 0.0,
+  "release_height_m": 0.5,
+  "release_vz": 0.0,
+  "voxel_m": 0.018,
+  "iterations": 150,
+  "particles": 306864,
+  "frames": 150,
+  "wall_s": 27.1,
+  "plate_mass_kg": 4.050000190734863,
+  "metrics": {
+    "total_mass": 223.7038625171408,
+    "final_outside_mass": 0.0,
+    "cumulative_escaped_mass": 0.0,
+    "cumulative_escaped_count": 0,
+    "final_penetrated_mass": 0.02405700070085004,
+    "penetrated_mass_peak": 0.0255150007433258,
+    "over_rim_mass_peak": 0.00656100019114092,
+    "max_splash_height": 0.38145171403884887,
+    "p999_splash_height": 0.04319767951965331,
+    "p99_splash_height": 0.0309092879295349,
+    "outside_kinetic_energy_peak": 0.0,
+    "above_surface_mass_peak": 4.835457140870858,
+    "fluid_kinetic_energy_peak": 24.362827375367416
+  },
+  "note": "Newton SolverImplicitMPM water-like isothermal fluid (not molten metal) + rigid plate, two-way coupled"
+}
